@@ -3,21 +3,21 @@ from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 
 
-class UserBase(BaseModel):
+class UserBaseSchema(BaseModel):
     """Базовая схема для пользователя"""
     email: Optional[EmailStr] = None
     username: Optional[str] = None
     is_active: Optional[bool] = True
 
 
-class UserCreate(UserBase):
+class UserCreateSchema(UserBaseSchema):
     """Схема для создания пользователя"""
     email: EmailStr
     username: str
     password: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "username": "johndoe",
@@ -26,25 +26,25 @@ class UserCreate(UserBase):
         }
 
 
-class UserUpdate(UserBase):
+class UserUpdateSchema(UserBaseSchema):
     """Схема для обновления пользователя"""
     password: Optional[str] = None
 
 
-class UserInDBBase(UserBase):
+class UserInDBBaseSchema(UserBaseSchema):
     """Базовая схема для пользователя из БД"""
     id: int
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
-class User(UserInDBBase):
+class UserSchema(UserInDBBaseSchema):
     """Схема для ответа с пользователем"""
     pass
 
 
-class UserInDB(UserInDBBase):
+class UserInDBSchema(UserInDBBaseSchema):
     """Схема для пользователя в БД (содержит хеш пароля)"""
     password_hash: str

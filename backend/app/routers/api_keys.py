@@ -1,41 +1,51 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
+from sqlalchemy import select
 
-from app.core import get_current_user
-from app.db.session import get_db
-from app.db.models import User, ApiKey
-from app.schemas.api_key import ApiKeyCreate, ApiKeyResponse, ApiKeyUpdate
+from app.core.dependencies import get_current_user
+from app.db.database import get_async_session
+from app.db.models import UserOrm, ApiKeyOrm
+from app.schemas.api_key import ApiKeyCreateSchema, ApiKeyResponseSchema, ApiKeyUpdateSchema
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[ApiKeyResponse])
+@router.get("/", response_model=List[ApiKeyResponseSchema])
 async def get_api_keys(
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+        db: AsyncSession = Depends(get_async_session),
+        current_user: UserOrm = Depends(get_current_user)
 ):
     """
     Получает список API ключей текущего пользователя.
     """
-    return db.query(ApiKey).filter(ApiKey.user_id == current_user.id).all()
+    result = await db.execute(
+        select(ApiKeyOrm).where(ApiKeyOrm.user_id == current_user.id)
+    )
+    api_keys = result.scalars().all()
+
+    # FastAPI автоматически преобразует ORM-объекты в модели Pydantic
+    return api_keys
 
 
-@router.post("/", response_model=ApiKeyResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ApiKeyResponseSchema, status_code=status.HTTP_201_CREATED)
 async def create_api_key(
-        api_key: ApiKeyCreate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+        api_key: ApiKeyCreateSchema,
+        db: AsyncSession = Depends(get_async_session),
+        current_user: UserOrm = Depends(get_current_user)
 ):
     """
     Создает новый API ключ для текущего пользователя.
     """
     # Проверяем уникальность ключа
-    existing_key = db.query(ApiKey).filter(
-        ApiKey.user_id == current_user.id,
-        ApiKey.provider == api_key.provider,
-        ApiKey.api_key == api_key.api_key
-    ).first()
+    result = await db.execute(
+        ApiKeyOrm.__table__.select().where(
+            (ApiKeyOrm.user_id == current_user.id) &
+            (ApiKeyOrm.provider == api_key.provider) &
+            (ApiKeyOrm.api_key == api_key.api_key)
+        )
+    )
+    existing_key = result.scalar_one_or_none()
 
     if existing_key:
         raise HTTPException(
@@ -44,7 +54,7 @@ async def create_api_key(
         )
 
     # Создаем новый ключ
-    db_api_key = ApiKey(
+    db_api_key = ApiKeyOrm(
         user_id=current_user.id,
         provider=api_key.provider,
         api_key=api_key.api_key,
@@ -53,27 +63,30 @@ async def create_api_key(
     )
 
     db.add(db_api_key)
-    db.commit()
-    db.refresh(db_api_key)
+    await db.commit()
+    await db.refresh(db_api_key)
 
     return db_api_key
 
 
-@router.put("/{key_id}", response_model=ApiKeyResponse)
+@router.put("/{key_id}", response_model=ApiKeyResponseSchema)
 async def update_api_key(
         key_id: int,
-        api_key: ApiKeyUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+        api_key: ApiKeyUpdateSchema,
+        db: AsyncSession = Depends(get_async_session),
+        current_user: UserOrm = Depends(get_current_user)
 ):
     """
     Обновляет существующий API ключ.
     """
     # Находим ключ
-    db_api_key = db.query(ApiKey).filter(
-        ApiKey.id == key_id,
-        ApiKey.user_id == current_user.id
-    ).first()
+    result = await db.execute(
+        select(ApiKeyOrm).where(
+            (ApiKeyOrm.id == key_id) &
+            (ApiKeyOrm.user_id == current_user.id)
+        )
+    )
+    db_api_key = result.scalar_one_or_none()
 
     if not db_api_key:
         raise HTTPException(
@@ -92,8 +105,8 @@ async def update_api_key(
     if api_key.api_key:
         db_api_key.api_key = api_key.api_key
 
-    db.commit()
-    db.refresh(db_api_key)
+    await db.commit()
+    await db.refresh(db_api_key)
 
     return db_api_key
 
@@ -101,17 +114,20 @@ async def update_api_key(
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_api_key(
         key_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+        db: AsyncSession = Depends(get_async_session),
+        current_user: UserOrm = Depends(get_current_user)
 ):
     """
     Удаляет API ключ.
     """
     # Находим ключ
-    db_api_key = db.query(ApiKey).filter(
-        ApiKey.id == key_id,
-        ApiKey.user_id == current_user.id
-    ).first()
+    result = await db.execute(
+        select(ApiKeyOrm).where(
+            (ApiKeyOrm.id == key_id) &
+            (ApiKeyOrm.user_id == current_user.id)
+        )
+    )
+    db_api_key = result.scalar_one_or_none()
 
     if not db_api_key:
         raise HTTPException(
@@ -120,7 +136,7 @@ async def delete_api_key(
         )
 
     # Удаляем ключ
-    db.delete(db_api_key)
-    db.commit()
+    await db.delete(db_api_key)
+    await db.commit()
 
     return None

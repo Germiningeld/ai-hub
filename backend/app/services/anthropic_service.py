@@ -3,11 +3,12 @@ import anthropic
 from anthropic import AsyncAnthropic
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from typing import Dict, Any, List, Optional
+from sqlalchemy import select
 
 from app.services.base_ai_service import BaseAIService
-from app.core.config import settings
-from app.db.models import UsageStatistics
-from sqlalchemy.orm import Session
+from app.core.settings import settings
+from app.db.models import UsageStatisticsOrm
+from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -165,7 +166,7 @@ class AnthropicService(BaseAIService):
         return total_cost
 
     async def update_usage_statistics(self,
-                                      db: Session,
+                                      db: AsyncSession,
                                       user_id: int,
                                       tokens_data: Dict[str, int],
                                       model: str,
@@ -184,11 +185,11 @@ class AnthropicService(BaseAIService):
             today = date.today()
 
             # Ищем или создаем запись статистики за сегодня
-            usage_stat = db.query(UsageStatistics).filter(
-                UsageStatistics.user_id == user_id,
-                UsageStatistics.provider == "anthropic",
-                UsageStatistics.model == model,
-                UsageStatistics.request_date == today
+            usage_stat = await db.execute(select(UsageStatisticsOrm)).filter(
+                UsageStatisticsOrm.user_id == user_id,
+                UsageStatisticsOrm.provider == "anthropic",
+                UsageStatisticsOrm.model == model,
+                UsageStatisticsOrm.request_date == today
             ).first()
 
             if usage_stat:
@@ -200,7 +201,7 @@ class AnthropicService(BaseAIService):
                 usage_stat.estimated_cost += cost
             else:
                 # Создаем новую запись
-                new_stat = UsageStatistics(
+                new_stat = UsageStatisticsOrm(
                     user_id=user_id,
                     provider="anthropic",
                     model=model,
@@ -213,8 +214,8 @@ class AnthropicService(BaseAIService):
                 )
                 db.add(new_stat)
 
-            db.commit()
+            await db.commit()
         except SQLAlchemyError as e:
-            db.rollback()
+            await db.rollback()
             # Логирование ошибки
             print(f"Error updating usage statistics: {str(e)}")

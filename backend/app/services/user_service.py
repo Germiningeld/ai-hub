@@ -1,12 +1,14 @@
 from typing import Optional
-from sqlalchemy.orm import Session
 
-from app.db.models import User
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import UserOrm
 from app.core.security import get_password_hash, verify_password
-from app.schemas.user import UserCreate, UserUpdate
+from app.schemas.user import UserCreateSchema, UserUpdateSchema
 
 
-def get_by_email(db: Session, email: str) -> Optional[User]:
+async def get_by_email(db: AsyncSession, email: str) -> Optional[UserOrm]:
     """
     Получает пользователя по email.
 
@@ -15,12 +17,13 @@ def get_by_email(db: Session, email: str) -> Optional[User]:
         email: Email пользователя
 
     Returns:
-        Optional[User]: Пользователь или None, если не найден
+        Optional[UserOrm]: Пользователь или None, если не найден
     """
-    return db.query(User).filter(User.email == email).first()
+    result = await db.execute(select(UserOrm).filter(UserOrm.email == email))
+    return result.scalars().first()
 
 
-def get_by_username(db: Session, username: str) -> Optional[User]:
+async def get_by_username(db: AsyncSession, username: str) -> Optional[UserOrm]:
     """
     Получает пользователя по имени пользователя.
 
@@ -29,12 +32,13 @@ def get_by_username(db: Session, username: str) -> Optional[User]:
         username: Имя пользователя
 
     Returns:
-        Optional[User]: Пользователь или None, если не найден
+        Optional[UserOrm]: Пользователь или None, если не найден
     """
-    return db.query(User).filter(User.username == username).first()
+    result = await db.execute(select(UserOrm).filter(UserOrm.username == username))
+    return result.scalars().first()
 
 
-def authenticate(db: Session, email: str, password: str) -> Optional[User]:
+async def authenticate(db: AsyncSession, email: str, password: str) -> Optional[UserOrm]:
     """
     Аутентифицирует пользователя по email и паролю.
 
@@ -44,9 +48,9 @@ def authenticate(db: Session, email: str, password: str) -> Optional[User]:
         password: Пароль пользователя
 
     Returns:
-        Optional[User]: Пользователь, если аутентификация успешна, иначе None
+        Optional[UserOrm]: Пользователь, если аутентификация успешна, иначе None
     """
-    user = get_by_email(db, email)
+    user = await get_by_email(db, email)
     if not user:
         return None
     if not verify_password(password, user.password_hash):
@@ -54,7 +58,7 @@ def authenticate(db: Session, email: str, password: str) -> Optional[User]:
     return user
 
 
-def create_user(db: Session, user_in: UserCreate) -> User:
+async def create_user(db: AsyncSession, user_in: UserCreateSchema) -> UserOrm:
     """
     Создает нового пользователя.
 
@@ -63,21 +67,21 @@ def create_user(db: Session, user_in: UserCreate) -> User:
         user_in: Данные для создания пользователя
 
     Returns:
-        User: Созданный пользователь
+        UserOrm: Созданный пользователь
     """
-    db_user = User(
+    db_user = UserOrm(
         email=user_in.email,
         username=user_in.username,
         password_hash=get_password_hash(user_in.password),
         is_active=True,
     )
     db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
     return db_user
 
 
-def update_user(db: Session, user_id: int, user_in: UserUpdate) -> Optional[User]:
+async def update_user(db: AsyncSession, user_id: int, user_in: UserUpdateSchema) -> Optional[UserOrm]:
     """
     Обновляет данные пользователя.
 
@@ -87,9 +91,11 @@ def update_user(db: Session, user_id: int, user_in: UserUpdate) -> Optional[User
         user_in: Данные для обновления пользователя
 
     Returns:
-        Optional[User]: Обновленный пользователь или None, если не найден
+        Optional[UserOrm]: Обновленный пользователь или None, если не найден
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    result = await db.execute(select(UserOrm).filter(UserOrm.id == user_id))
+    user = result.scalars().first()
+
     if not user:
         return None
 
@@ -102,6 +108,6 @@ def update_user(db: Session, user_id: int, user_in: UserUpdate) -> Optional[User
     for field, value in update_data.items():
         setattr(user, field, value)
 
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
     return user

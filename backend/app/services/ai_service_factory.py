@@ -1,10 +1,11 @@
 from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.services.base_ai_service import BaseAIService
 from app.services.openai_service import OpenAIService
 from app.services.anthropic_service import AnthropicService
-from app.db.models import ApiKey
+from app.db.models import ApiKeyOrm
 
 
 class AIServiceFactory:
@@ -33,9 +34,9 @@ class AIServiceFactory:
 
     @classmethod
     async def create_service_for_user(cls,
-                                      db: Session,
-                                      user_id: int,
-                                      provider: str) -> Optional[BaseAIService]:
+                                    db: AsyncSession,
+                                    user_id: int,
+                                    provider: str) -> Optional[BaseAIService]:
         """
         Создает сервис AI для пользователя на основе его API ключей.
 
@@ -48,11 +49,14 @@ class AIServiceFactory:
             Экземпляр сервиса AI или None, если ключ не найден
         """
         # Ищем активный API ключ пользователя для указанного провайдера
-        api_key_record = db.query(ApiKey).filter(
-            ApiKey.user_id == user_id,
-            ApiKey.provider == provider,
-            ApiKey.is_active == True
-        ).first()
+        result = await db.execute(
+            select(ApiKeyOrm).filter(
+                ApiKeyOrm.user_id == user_id,
+                ApiKeyOrm.provider == provider,
+                ApiKeyOrm.is_active == True
+            )
+        )
+        api_key_record = result.scalars().first()
 
         if not api_key_record:
             return None

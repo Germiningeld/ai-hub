@@ -1,14 +1,16 @@
+import httpx
 import asyncio
 import tiktoken
 from typing import Dict, Any, List, Optional
 import openai
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from sqlalchemy import select
 
 from app.services.base_ai_service import BaseAIService
-from app.core.config import settings
-from app.db.models import UsageStatistics
-from sqlalchemy.orm import Session
+from app.core.settings import settings
+from app.db.models import UsageStatisticsOrm
+from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -46,80 +48,150 @@ class OpenAIService(BaseAIService):
                                   model: str = "gpt-3.5-turbo",
                                   max_tokens: int = 1000,
                                   temperature: float = 0.7,
+                                  system_prompt: Optional[str] = None,
+                                  stream=False,
                                   **kwargs) -> Dict[str, Any]:
         """
-        Генерирует ответ на основе промпта с использованием OpenAI API.
+        Генерирует ответ на основе промпта с использованием API OpenAI.
 
         Args:
             prompt: Текст запроса
-            model: Имя модели
+            model: Имя модели OpenAI
             max_tokens: Максимальное количество токенов в ответе
             temperature: Температура (случайность) ответа
+            system_prompt: Системный промпт (инструкции для модели)
+            stream: Флаг потоковой генерации
             **kwargs: Дополнительные параметры для API
 
         Returns:
             Словарь с ответом и метаданными
         """
-        # Формируем сообщения для Chat API
+        if stream:
+            return self.stream_completion(
+                prompt=prompt,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system_prompt=system_prompt,
+                **kwargs
+            )
+
+        # Создаем базовые сообщения
         messages = [{"role": "user", "content": prompt}]
+        if system_prompt:
+            messages.insert(0, {"role": "system", "content": system_prompt})
 
-        # Если указан системный промпт, добавляем его
-        if "system_prompt" in kwargs:
-            messages.insert(0, {"role": "system", "content": kwargs["system_prompt"]})
-
-        # Выполняем запрос к API
         try:
+            # Выполняем запрос с полными параметрами
             response = await self.client.chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                **{k: v for k, v in kwargs.items() if k not in ["system_prompt"]}
+                **kwargs
             )
 
-            # Извлекаем ответ
-            answer = response.choices[0].message.content
-
-            # Собираем данные о токенах
+            # Получаем информацию о токенах
             tokens_data = {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens
             }
 
-            # Рассчитываем стоимость запроса
+            # Рассчитываем стоимость
             cost = await self.calculate_cost(
-                response.usage.prompt_tokens,
-                response.usage.completion_tokens,
+                tokens_data["prompt_tokens"],
+                tokens_data["completion_tokens"],
                 model
             )
 
-            # Формируем результат
-            result = {
-                "text": answer,
-                "tokens": tokens_data,
-                "cost": cost,
+            return {
+                "text": response.choices[0].message.content,
                 "model": model,
-                "provider": "openai"
+                "provider": "openai",
+                "tokens": tokens_data,
+                "cost": cost
+            }
+        except Exception as e:
+            error_info = {
+                "error": True,
+                "error_message": str(e),
+                "error_type": type(e).__name__,
+                "error_doc": str(getattr(e, "__doc__", "No documentation")),
+                "error_args": str(getattr(e, "args", [])),
+            }
+            return error_info
+
+    async def generate_completion_with_context(self,
+                                               context: List[Dict[str, str]],
+                                               model: str = "gpt-3.5-turbo",
+                                               max_tokens: int = 1000,
+                                               temperature: float = 0.7,
+                                               stream=False,
+                                               **kwargs) -> Dict[str, Any]:
+        """
+        Генерирует ответ на основе контекста диалога с использованием API OpenAI.
+
+        Args:
+            context: Список сообщений в формате [{"role": "user", "content": "..."}, ...]
+            model: Имя модели OpenAI
+            max_tokens: Максимальное количество токенов в ответе
+            temperature: Температура (случайность) ответа
+            stream: Флаг потоковой генерации
+            **kwargs: Дополнительные параметры для API
+
+        Returns:
+            Словарь с ответом и метаданными
+        """
+        if stream:
+            return self.stream_completion_with_context(
+                context=context,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                **kwargs
+            )
+
+        try:
+            # OpenAI API уже поддерживает формат сообщений, поэтому просто передаем контекст
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=context,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                **kwargs
+            )
+
+            # Получаем информацию о токенах
+            tokens_data = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
             }
 
-            return result
-
-        except openai.APIError as e:
-            # Обрабатываем ошибки API
-            error_message = str(e)
-            if "rate_limit" in error_message.lower():
-                error_type = "rate_limit"
-            elif "billing" in error_message.lower():
-                error_type = "billing"
-            else:
-                error_type = "routers"
+            # Рассчитываем стоимость
+            cost = await self.calculate_cost(
+                tokens_data["prompt_tokens"],
+                tokens_data["completion_tokens"],
+                model
+            )
 
             return {
-                "error": True,
-                "error_message": error_message,
-                "error_type": error_type
+                "text": response.choices[0].message.content,
+                "model": model,
+                "provider": "openai",
+                "tokens": tokens_data,
+                "cost": cost
             }
+        except Exception as e:
+            error_info = {
+                "error": True,
+                "error_message": str(e),
+                "error_type": type(e).__name__,
+                "error_doc": str(getattr(e, "__doc__", "No documentation")),
+                "error_args": str(getattr(e, "args", [])),
+            }
+            return error_info
 
     async def calculate_tokens(self, text: str, model: str = "gpt-3.5-turbo") -> Dict[str, int]:
         """
@@ -159,6 +231,39 @@ class OpenAIService(BaseAIService):
                     "estimated": True
                 }
 
+    def count_tokens_for_messages(self, messages: List[Dict[str, str]], model: str) -> int:
+        """
+        Подсчитывает количество токенов для сообщений чата.
+
+        Args:
+            messages: Список сообщений
+            model: Модель для подсчета
+
+        Returns:
+            Количество токенов
+        """
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except KeyError:
+            encoding = tiktoken.get_encoding("cl100k_base")
+
+        tokens_per_message = 3  # каждое сообщение начинается с <im_start>{role/name}\n
+        tokens_per_name = 1  # если есть имя, формат: {name}\n
+
+        # Подсчет токенов
+        num_tokens = 0
+        for message in messages:
+            num_tokens += tokens_per_message
+            for key, value in message.items():
+                num_tokens += len(encoding.encode(value))
+                if key == "name":  # только имя потребляет токены_на_имя
+                    num_tokens += tokens_per_name
+
+        # Каждый ответ начинается с <im_start>assistant
+        num_tokens += 3
+
+        return num_tokens
+
     async def calculate_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         """
         Рассчитывает стоимость запроса на основе токенов для моделей OpenAI.
@@ -184,7 +289,7 @@ class OpenAIService(BaseAIService):
         return total_cost
 
     async def update_usage_statistics(self,
-                                      db: Session,
+                                      db: AsyncSession,
                                       user_id: int,
                                       tokens_data: Dict[str, int],
                                       model: str,
@@ -203,12 +308,15 @@ class OpenAIService(BaseAIService):
             today = date.today()
 
             # Ищем или создаем запись статистики за сегодня
-            usage_stat = db.query(UsageStatistics).filter(
-                UsageStatistics.user_id == user_id,
-                UsageStatistics.provider == "openai",
-                UsageStatistics.model == model,
-                UsageStatistics.request_date == today
-            ).first()
+            query = select(UsageStatisticsOrm).filter(
+                UsageStatisticsOrm.user_id == user_id,
+                UsageStatisticsOrm.provider == "openai",
+                UsageStatisticsOrm.model == model,
+                UsageStatisticsOrm.request_date == today
+            )
+
+            result = await db.execute(query)
+            usage_stat = result.scalars().first()
 
             if usage_stat:
                 # Обновляем существующую запись
@@ -219,7 +327,7 @@ class OpenAIService(BaseAIService):
                 usage_stat.estimated_cost += cost
             else:
                 # Создаем новую запись
-                new_stat = UsageStatistics(
+                new_stat = UsageStatisticsOrm(
                     user_id=user_id,
                     provider="openai",
                     model=model,
@@ -232,8 +340,137 @@ class OpenAIService(BaseAIService):
                 )
                 db.add(new_stat)
 
-            db.commit()
+            await db.commit()
         except SQLAlchemyError as e:
-            db.rollback()
+            await db.rollback()
             # Логирование ошибки
             print(f"Error updating usage statistics: {str(e)}")
+
+    async def stream_completion(self,
+                                prompt: str,
+                                model: str = "gpt-3.5-turbo",
+                                max_tokens: int = 1000,
+                                temperature: float = 0.7,
+                                system_prompt: Optional[str] = None,
+                                **kwargs):
+        """
+        Генерирует ответ в потоковом режиме без контекста.
+
+        Args:
+            prompt: Текст запроса
+            model: Модель
+            max_tokens: Максимальное количество токенов
+            temperature: Температура
+            system_prompt: Системный промпт
+
+        Yields:
+            Куски ответа и данные о токенах/стоимости
+        """
+        # Создаем сообщения
+        messages = [{"role": "user", "content": prompt}]
+        if system_prompt:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+
+        full_response = ""
+        prompt_tokens = self.count_tokens_for_messages(messages, model)
+
+        try:
+            # Запрашиваем потоковый ответ
+            stream = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+                **kwargs
+            )
+
+            # Собираем ответ по кускам
+            async for chunk in stream:
+                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_response += content
+                        yield {"text": content}
+
+            # Подсчет токенов и стоимости по завершении
+            completion_tokens = len(tiktoken.encoding_for_model(model).encode(full_response))
+            total_tokens = prompt_tokens + completion_tokens
+
+            tokens_data = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
+
+            cost = await self.calculate_cost(
+                prompt_tokens,
+                completion_tokens,
+                model
+            )
+
+            yield {"tokens": tokens_data, "cost": cost}
+
+        except Exception as e:
+            yield {"error": True, "error_message": str(e)}
+
+    async def stream_completion_with_context(self,
+                                             context: List[Dict[str, str]],
+                                             model: str = "gpt-3.5-turbo",
+                                             max_tokens: int = 1000,
+                                             temperature: float = 0.7,
+                                             **kwargs):
+        """
+        Генерирует ответ в потоковом режиме с учетом контекста.
+
+        Args:
+            context: Контекст диалога
+            model: Модель
+            max_tokens: Максимальное количество токенов
+            temperature: Температура
+
+        Yields:
+            Куски ответа и данные о токенах/стоимости
+        """
+        full_response = ""
+        prompt_tokens = self.count_tokens_for_messages(context, model)
+
+        try:
+            # Запрашиваем потоковый ответ
+            stream = await self.client.chat.completions.create(
+                model=model,
+                messages=context,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+                **kwargs
+            )
+
+            # Собираем ответ по кускам
+            async for chunk in stream:
+                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_response += content
+                        yield {"text": content}
+
+            # Подсчет токенов и стоимости по завершении
+            completion_tokens = len(tiktoken.encoding_for_model(model).encode(full_response))
+            total_tokens = prompt_tokens + completion_tokens
+
+            tokens_data = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
+
+            cost = await self.calculate_cost(
+                prompt_tokens,
+                completion_tokens,
+                model
+            )
+
+            yield {"tokens": tokens_data, "cost": cost}
+
+        except Exception as e:
+            yield {"error": True, "error_message": str(e)}

@@ -172,3 +172,4 @@ cython_debug/
 *.py
 backend/tests-errors/tests_structure.md
 /backend/tests-errors
+/frontend/node_modules

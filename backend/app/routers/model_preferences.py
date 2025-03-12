@@ -106,11 +106,16 @@ async def create_model_preferences(
     """
     Создает новые настройки модели.
     """
-    # Проверяем, существуют ли уже настройки для данной модели
+    # Проверяем API-ключ
+    api_key = await db.get(ApiKeyOrm, preferences_data.api_key_id)
+    if not api_key or api_key.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="API ключ не найден")
+
+    # Проверяем, существуют ли уже настройки с такой же моделью для данного API-ключа
     result = await db.execute(
         select(ModelPreferencesOrm).filter(
             (ModelPreferencesOrm.user_id == current_user.id) &
-            (ModelPreferencesOrm.provider == preferences_data.provider) &
+            (ModelPreferencesOrm.api_key_id == preferences_data.api_key_id) &
             (ModelPreferencesOrm.model == preferences_data.model)
         )
     )
@@ -119,16 +124,17 @@ async def create_model_preferences(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Настройки для этой модели уже существуют"
+            detail="Настройки для этой модели с данным API-ключом уже существуют"
         )
 
-    # Если это настройки по умолчанию, сбрасываем другие настройки по умолчанию для этого провайдера
+    # Если новая настройка устанавливается как дефолтная
     if preferences_data.is_default:
+        # Находим и сбрасываем все другие дефолтные настройки для того же API-ключа
         await db.execute(
             update(ModelPreferencesOrm)
             .where(
                 (ModelPreferencesOrm.user_id == current_user.id) &
-                (ModelPreferencesOrm.provider == preferences_data.provider) &
+                (ModelPreferencesOrm.api_key_id == preferences_data.api_key_id) &
                 (ModelPreferencesOrm.is_default == True)
             )
             .values(is_default=False)
@@ -137,12 +143,19 @@ async def create_model_preferences(
     # Создаем новые настройки
     new_preferences = ModelPreferencesOrm(
         user_id=current_user.id,
-        provider=preferences_data.provider,
+        provider=api_key.provider,  # Берем провайдера из API-ключа
+        api_key_id=preferences_data.api_key_id,
         model=preferences_data.model,
         max_tokens=preferences_data.max_tokens,
         temperature=preferences_data.temperature,
         system_prompt=preferences_data.system_prompt,
-        is_default=preferences_data.is_default
+        is_default=preferences_data.is_default,
+        input_cost=preferences_data.input_cost,
+        output_cost=preferences_data.output_cost,
+        cached_input_cost=preferences_data.cached_input_cost,
+        description=preferences_data.description,
+        use_count=0,
+        last_used_at=None
     )
 
     db.add(new_preferences)
@@ -176,13 +189,19 @@ async def update_model_preferences(
             detail="Настройки модели не найдены"
         )
 
-    # Если устанавливаем is_default в True, сбрасываем другие настройки по умолчанию для этого провайдера
+    # Проверяем API-ключ, если он передан
+    if preferences_data.api_key_id is not None:
+        api_key = await db.get(ApiKeyOrm, preferences_data.api_key_id)
+        if not api_key or api_key.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="API ключ не найден")
+
+    # Если устанавливаем is_default в True, сбрасываем другие настройки по умолчанию для этого API-ключа
     if preferences_data.is_default is True and not preferences.is_default:
         await db.execute(
             update(ModelPreferencesOrm)
             .where(
                 (ModelPreferencesOrm.user_id == current_user.id) &
-                (ModelPreferencesOrm.provider == preferences.provider) &
+                (ModelPreferencesOrm.api_key_id == preferences.api_key_id) &
                 (ModelPreferencesOrm.is_default == True) &
                 (ModelPreferencesOrm.id != preferences_id)
             )
@@ -190,6 +209,9 @@ async def update_model_preferences(
         )
 
     # Обновляем поля настроек
+    if preferences_data.api_key_id is not None:
+        preferences.api_key_id = preferences_data.api_key_id
+
     if preferences_data.max_tokens is not None:
         preferences.max_tokens = preferences_data.max_tokens
 
@@ -202,11 +224,26 @@ async def update_model_preferences(
     if preferences_data.is_default is not None:
         preferences.is_default = preferences_data.is_default
 
+    # Обновляем поля стоимости
+    if preferences_data.input_cost is not None:
+        preferences.input_cost = preferences_data.input_cost
+
+    if preferences_data.output_cost is not None:
+        preferences.output_cost = preferences_data.output_cost
+
+    if preferences_data.cached_input_cost is not None:
+        preferences.cached_input_cost = preferences_data.cached_input_cost
+
+    if preferences_data.description is not None:
+        preferences.description = preferences_data.description
+
+    # Устанавливаем use_count и last_used_at по умолчанию, если они не были установлены
+    preferences.use_count = preferences.use_count or 0
+
     await db.commit()
     await db.refresh(preferences)
 
     return preferences
-
 
 @router.delete("/preferences/{preferences_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_model_preferences(

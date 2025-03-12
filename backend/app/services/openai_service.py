@@ -1,7 +1,7 @@
 import httpx
 import asyncio
 import tiktoken
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import openai
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -264,30 +264,96 @@ class OpenAIService(BaseAIService):
 
         return num_tokens
 
-    async def calculate_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
+    async def calculate_cost(self, prompt_tokens: int, completion_tokens: int, model: str,
+                             model_preference_id: Optional[int] = None, is_cached: bool = False) -> Tuple[
+        float, Optional[Dict]]:
         """
-        Рассчитывает стоимость запроса на основе токенов для моделей OpenAI.
+        Рассчитывает стоимость запроса на основе токенов для моделей.
 
         Args:
             prompt_tokens: Количество токенов в запросе
             completion_tokens: Количество токенов в ответе
-            model: Имя модели
+            model: Имя модели (используется как fallback)
+            model_preference_id: ID настроек модели в базе данных
+            is_cached: Был ли ответ получен из кэша
 
         Returns:
-            Стоимость в долларах
+            Tuple[float, Optional[Dict]]: Стоимость в долларах и информация об использованной модели цен
         """
-        # Получаем тарифы для указанной модели или используем тарифы gpt-3.5-turbo по умолчанию
+        # Данные для отладки и мониторинга
+        pricing_info = None
+
+        # Если указан ID настроек модели, пытаемся получить ценовую информацию из базы данных
+        if model_preference_id:
+            async with self.db_session() as db:
+                model_pref = await db.execute(
+                    select(ModelPreferencesOrm).filter(ModelPreferencesOrm.id == model_preference_id)
+                )
+                model_pref = model_pref.scalar_one_or_none()
+
+                if model_pref:
+                    pricing_info = {
+                        "source": "db",
+                        "model_id": model_pref.id,
+                        "model_name": model_pref.model,
+                        "provider": model_pref.provider
+                    }
+
+                    # Определяем стоимость входных токенов (учитываем кэширование, если применимо)
+                    input_price = 0.0
+                    if prompt_tokens > 0:
+                        if is_cached and model_pref.cached_input_cost is not None:
+                            input_price = model_pref.cached_input_cost / 1000
+                            pricing_info["input_price_source"] = "cached_rate"
+                        elif model_pref.input_cost is not None:
+                            input_price = model_pref.input_cost / 1000
+                            pricing_info["input_price_source"] = "standard_rate"
+
+                    # Определяем стоимость выходных токенов
+                    output_price = 0.0
+                    if completion_tokens > 0 and model_pref.output_cost is not None:
+                        output_price = model_pref.output_cost / 1000
+                        pricing_info["output_price_source"] = "standard_rate"
+
+                    # Если у модели есть цены, используем их для расчета
+                    if input_price > 0 or output_price > 0:
+                        pricing_info["input_price"] = input_price
+                        pricing_info["output_price"] = output_price
+
+                        # Рассчитываем стоимость
+                        input_cost = prompt_tokens * input_price
+                        output_cost = completion_tokens * output_price
+                        total_cost = input_cost + output_cost
+
+                        pricing_info["input_cost"] = input_cost
+                        pricing_info["output_cost"] = output_cost
+                        pricing_info["total_cost"] = total_cost
+
+                        return total_cost, pricing_info
+
+        # Если не удалось получить цены из настроек модели, используем стандартные цены
+        # Получаем тарифы для указанной модели или используем тарифы по умолчанию
         input_price, output_price = self.token_pricing.get(
             model, self.token_pricing["gpt-3.5-turbo"]
         )
+
+        pricing_info = {
+            "source": "default",
+            "model": model,
+            "input_price": input_price,
+            "output_price": output_price
+        }
 
         # Рассчитываем стоимость
         input_cost = prompt_tokens * input_price
         output_cost = completion_tokens * output_price
         total_cost = input_cost + output_cost
 
-        return total_cost
+        pricing_info["input_cost"] = input_cost
+        pricing_info["output_cost"] = output_cost
+        pricing_info["total_cost"] = total_cost
 
+        return total_cost, pricing_info
     async def update_usage_statistics(self,
                                       db: AsyncSession,
                                       user_id: int,

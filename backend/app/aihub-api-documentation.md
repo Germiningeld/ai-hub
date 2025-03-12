@@ -1032,216 +1032,204 @@ DELETE /api/prompts/{prompt_id}
 **Ответ**:
 - Статус код: `204 No Content`
 
-## Настройки моделей
 
-### Получение списка доступных моделей
+# Настройки моделей
 
-**Запрос**:
-```
-GET /api/models/available
-```
+## Получение списка доступных моделей
 
-**Заголовки**:
-- `Authorization`: `Bearer {token}`
+### Запрос
+- **Метод:** `GET /api/models/available`
+- **Заголовки:** 
+  - `Authorization: Bearer {token}`
 
-**Ответ**:
+### Ответ
 ```json
 {
   "models": [
     {
+      "id": 42,
+      "model": "gpt-4o",
       "provider": "openai",
-      "id": "gpt-4",
-      "name": "GPT-4",
-      "description": "Передовая модель OpenAI с высокой способностью к рассуждению",
-      "max_tokens": 8192,
-      "pricing": {
-        "input": 10.0,
-        "output": 30.0
-      },
-      "capabilities": ["рассуждение", "креативное письмо", "программирование"]
+      "max_tokens": 4096,
+      "input_cost": 10.0,
+      "output_cost": 30.0,
+      "cached_input_cost": 3.0
     },
     {
-      "provider": "anthropic",
-      "id": "claude-3-opus",
-      "name": "Claude 3 Opus",
-      "description": "Самая мощная модель Claude, оптимизированная для сложных задач",
-      "max_tokens": 200000,
-      "pricing": {
-        "input": 15.0,
-        "output": 75.0
-      },
-      "capabilities": ["рассуждение", "креативное письмо", "программирование", "математика", "анализ данных"]
+      "model": "claude-3-opus",
+      "provider": "anthropic", 
+      "max_tokens": 4096,
+      "input_cost": 15.0,
+      "output_cost": 75.0,
+      "cached_input_cost": 4.5
     }
   ]
 }
 ```
 
-### Получение настроек моделей пользователя
+## Получение настроек моделей пользователя
 
-**Запрос**:
-```
-GET /api/models/preferences
-```
+### Запрос
+- **Метод:** `GET /api/models/preferences`
+- **Заголовки:** 
+  - `Authorization: Bearer {token}`
 
-**Заголовки**:
-- `Authorization`: `Bearer {token}`
-
-**Ответ**:
+### Ответ
 ```json
 [
   {
     "id": 15,
     "user_id": 1,
+    "api_key_id": 23,
     "provider": "openai",
-    "model": "gpt-4",
-    "max_tokens": 1500,
+    "model": "gpt-4o",
+    "description": "Настройки для аналитических задач",
+    "max_tokens": 2000,
     "temperature": 0.8,
     "system_prompt": "Ты аналитик данных, помогающий интерпретировать сложные наборы данных и строить прогнозы",
-    "is_default": false,
-    "created_at": "2025-02-10T12:30:45",
-    "updated_at": "2025-02-15T18:22:33"
-  },
-  {
-    "id": 16,
-    "user_id": 1,
-    "provider": "anthropic",
-    "model": "claude-3-opus",
-    "max_tokens": 4000,
-    "temperature": 0.5,
-    "system_prompt": "Ты эксперт по машинному обучению, специализирующийся на глубоком обучении и компьютерном зрении",
     "is_default": true,
-    "created_at": "2025-02-12T09:15:20",
-    "updated_at": "2025-02-15T18:23:10"
+    "input_cost": 10.0,
+    "output_cost": 30.0,
+    "cached_input_cost": 3.0,
+    "created_at": "2024-02-10T12:30:45",
+    "updated_at": "2024-03-15T18:22:33",
+    "use_count": 15,
+    "last_used_at": "2024-03-16T10:30:45.123456"
   }
 ]
 ```
 
-### Получение настроек моделей по умолчанию
+## Получение настроек моделей по умолчанию
 
-**Запрос**:
-```
-GET /api/models/preferences/default
-```
+### Запрос
+- **Метод:** `GET /api/models/preferences/default`
+- **Заголовки:** 
+  - `Authorization: Bearer {token}`
 
-**Заголовки**:
-- `Authorization`: `Bearer {token}`
-
-**Ответ**:
+### Ответ
 ```json
 {
   "openai": {
     "id": 17,
     "user_id": 1,
+    "api_key_id": 24,
     "provider": "openai",
     "model": "gpt-3.5-turbo",
+    "description": "Дефолтные настройки для OpenAI",
     "max_tokens": 1000,
     "temperature": 0.7,
     "system_prompt": null,
     "is_default": true,
-    "created_at": "2025-02-10T12:30:45",
-    "updated_at": "2025-02-15T18:22:33"
-  },
-  "anthropic": {
-    "id": 16,
-    "user_id": 1,
-    "provider": "anthropic",
-    "model": "claude-3-opus",
-    "max_tokens": 4000,
-    "temperature": 0.5,
-    "system_prompt": "Ты эксперт по машинному обучению, специализирующийся на глубоком обучении и компьютерном зрении",
-    "is_default": true,
-    "created_at": "2025-02-12T09:15:20",
-    "updated_at": "2025-02-15T18:23:10"
+    "input_cost": 10.0,
+    "output_cost": 30.0,
+    "cached_input_cost": 3.0,
+    "created_at": "2024-02-10T12:30:45",
+    "updated_at": "2024-03-15T18:22:33"
   }
 }
 ```
 
-### Создание настройки модели
+## Создание настройки модели
 
-**Запрос**:
-```
-POST /api/models/preferences
-```
+### Запрос
+- **Метод:** `POST /api/models/preferences`
+- **Заголовки:** 
+  - `Authorization: Bearer {token}`
 
-**Заголовки**:
-- `Authorization`: `Bearer {token}`
-
-**Тело запроса**:
+### Тело запроса
 ```json
 {
-  "provider": "anthropic",
+  "api_key_id": 25,
   "model": "claude-3-opus",
-  "max_tokens": 2000,
-  "temperature": 0.5,
-  "system_prompt": "Ты профессиональный копирайтер, специализирующийся на создании рекламных текстов",
-  "is_default": true
-}
-```
-
-**Ответ**:
-```json
-{
-  "id": 18,
-  "user_id": 1,
-  "provider": "anthropic",
-  "model": "claude-3-opus",
+  "description": "Настройки для копирайтинга",
   "max_tokens": 2000,
   "temperature": 0.5,
   "system_prompt": "Ты профессиональный копирайтер, специализирующийся на создании рекламных текстов",
   "is_default": true,
-  "created_at": "2024-03-16T15:45:30.123456",
-  "updated_at": "2024-03-16T15:45:30.123456"
+  "input_cost": 15.0,
+  "output_cost": 75.0,
+  "cached_input_cost": 4.5
 }
 ```
 
-### Обновление настройки модели
-
-**Запрос**:
-```
-PUT /api/models/preferences/{preferences_id}
-```
-
-**Заголовки**:
-- `Authorization`: `Bearer {token}`
-
-**Тело запроса**:
-```json
-{
-  "max_tokens": 4000,
-  "temperature": 0.3,
-  "system_prompt": "Ты опытный научный консультант с глубокими знаниями в области медицины и биологии",
-  "is_default": true
-}
-```
-
-**Ответ**:
+### Ответ
 ```json
 {
   "id": 18,
   "user_id": 1,
+  "api_key_id": 25,
   "provider": "anthropic",
   "model": "claude-3-opus",
+  "description": "Настройки для копирайтинга",
+  "max_tokens": 2000,
+  "temperature": 0.5,
+  "system_prompt": "Ты профессиональный копирайтер, специализирующийся на создании рекламных текстов",
+  "is_default": true,
+  "input_cost": 15.0,
+  "output_cost": 75.0,
+  "cached_input_cost": 4.5,
+  "created_at": "2024-03-16T15:45:30.123456",
+  "updated_at": "2024-03-16T15:45:30.123456",
+  "use_count": 0,
+  "last_used_at": null
+}
+```
+
+## Обновление настройки модели
+
+### Запрос
+- **Метод:** `PUT /api/models/preferences/{preferences_id}`
+- **Заголовки:** 
+  - `Authorization: Bearer {token}`
+
+### Тело запроса
+```json
+{
+  "api_key_id": 26,
+  "max_tokens": 4000,
+  "temperature": 0.3,
+  "description": "Научный консультант",
+  "system_prompt": "Ты опытный научный консультант с глубокими знаниями в области медицины и биологии",
+  "is_default": true,
+  "input_cost": 20.0,
+  "output_cost": 80.0,
+  "cached_input_cost": 5.0
+}
+```
+
+### Ответ
+```json
+{
+  "id": 18,
+  "user_id": 1,
+  "api_key_id": 26,
+  "provider": "anthropic",
+  "model": "claude-3-opus",
+  "description": "Научный консультант",
   "max_tokens": 4000,
   "temperature": 0.3,
   "system_prompt": "Ты опытный научный консультант с глубокими знаниями в области медицины и биологии",
   "is_default": true,
+  "input_cost": 20.0,
+  "output_cost": 80.0,
+  "cached_input_cost": 5.0,
   "created_at": "2024-03-16T15:45:30.123456",
-  "updated_at": "2024-03-16T16:10:15.987654"
+  "updated_at": "2024-03-16T16:10:15.987654",
+  "use_count": 0,
+  "last_used_at": null
 }
 ```
 
-### Удаление настройки модели
+## Удаление настройки модели
 
-**Запрос**:
-```
-DELETE /api/models/preferences/{preferences_id}
-```
+### Запрос
+- **Метод:** `DELETE /api/models/preferences/{preferences_id}`
+- **Заголовки:** 
+  - `Authorization: Bearer {token}`
 
-**Заголовки**:
-- `Authorization`: `Bearer {token}`
+### Ответ
+- **Статус код:** 204 No Content
 
-**Ответ**:
-- Статус код: `204 No Content`
 
 ## Статистика использования
 

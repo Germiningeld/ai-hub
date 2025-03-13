@@ -2,8 +2,6 @@ from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-from app.schemas.model_preferences import ModelPreferencesSchema
-
 
 # Основные схемы запросов к AI
 class CompletionRequestSchema(BaseModel):
@@ -169,14 +167,9 @@ class MessageBaseSchema(BaseModel):
 
 
 class MessageCreateSchema(MessageBaseSchema):
-    tokens_input: Optional[int] = Field(None, description="Количество входных токенов")
-    tokens_output: Optional[int] = Field(None, description="Количество выходных токенов")
-    tokens_total: Optional[int] = Field(None, description="Общее количество токенов")
-    model: Optional[str] = Field(None, description="Модель, используемая для сообщения (legacy)")
-    provider: Optional[str] = Field(None, description="Провайдер ИИ (legacy)")
-    model_preference_id: Optional[int] = Field(None, description="ID настроек модели")
-    is_cached: Optional[bool] = Field(False, description="Был ли ответ получен из кэша")
-    cost: Optional[float] = Field(None, description="Стоимость сообщения")
+    tokens: Optional[int] = Field(None, description="Количество токенов в сообщении")
+    model: Optional[str] = Field(None, description="Модель, используемая для сообщения")
+    provider: Optional[str] = Field(None, description="Провайдер ИИ")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Дополнительные метаданные")
 
     class Config:
@@ -184,12 +177,9 @@ class MessageCreateSchema(MessageBaseSchema):
             "example": {
                 "role": "user",
                 "content": "Объясни, пожалуйста, как работает алгоритм кластеризации K-means простыми словами",
-                "tokens_input": 16,
-                "tokens_output": 0,
-                "tokens_total": 16,
-                "model_preference_id": 5,
-                "is_cached": False,
-                "cost": 0.00048,
+                "tokens": 16,
+                "model": None,
+                "provider": None,
                 "metadata": {
                     "browser": "Chrome",
                     "os": "Windows 11",
@@ -202,17 +192,11 @@ class MessageCreateSchema(MessageBaseSchema):
 class MessageSchema(MessageBaseSchema):
     id: int
     thread_id: int
-    tokens_input: Optional[int]
-    tokens_output: Optional[int]
-    tokens_total: Optional[int]
+    tokens: Optional[int]
     model: Optional[str]
     provider: Optional[str]
-    model_preference_id: Optional[int]
-    is_cached: Optional[bool]
-    cost: Optional[float]
     meta_data: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
-    model_preference: Optional[ModelPreferencesSchema] = None
 
     class Config:
         from_attributes = True
@@ -222,28 +206,14 @@ class MessageSchema(MessageBaseSchema):
                 "thread_id": 53,
                 "role": "assistant",
                 "content": "Алгоритм K-means — это метод кластеризации, который разделяет данные на K групп. Представьте, что у вас есть разноцветные точки на бумаге, и вы хотите объединить похожие по цвету точки в группы...",
-                "tokens_input": 16,
-                "tokens_output": 240,
-                "tokens_total": 256,
-                "model": "gpt-4",
+                "tokens": 256,
+                "model": "gpt-4o",
                 "provider": "openai",
-                "model_preference_id": 5,
-                "is_cached": False,
-                "cost": 0.00786,
                 "meta_data": {
                     "response_time_ms": 1520,
                     "user_feedback": "helpful"
                 },
-                "created_at": "2024-03-15T14:30:12.456789",
-                "model_preference": {
-                    "id": 5,
-                    "user_id": 324,
-                    "provider": "openai",
-                    "model": "gpt-4",
-                    "input_cost": 10.0,
-                    "output_cost": 30.0,
-                    "cached_input_cost": 3.0
-                }
+                "created_at": "2024-03-15T14:30:12.456789"
             }
         }
 

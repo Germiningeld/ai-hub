@@ -18,7 +18,6 @@ from app.schemas.thread import (
     TokenCountResponseSchema, ErrorResponseSchema
 )
 from app.services.ai_service_factory import AIServiceFactory
-from app.services.message_service import process_and_save_message, get_or_create_model_preference
 
 router = APIRouter()
 
@@ -908,9 +907,6 @@ async def send_message(
         thread_id=thread_id,
         role="user",
         content=message_data.content,
-        tokens_input=0,  # будет заполнено позже, если доступно
-        tokens_output=0,
-        tokens_total=0,
         provider=thread.provider,
         model=thread.model
     )
@@ -919,14 +915,6 @@ async def send_message(
     await db.refresh(user_message)
 
     print(f"Сохранено сообщение пользователя с ID: {user_message.id}")
-
-    # Находим или создаем настройки модели для расчета стоимости
-    model_preference_id = await get_or_create_model_preference(
-        db=db,
-        user_id=current_user.id,
-        provider=thread.provider,
-        model=thread.model
-    )
 
     # Определяем метод генерации в зависимости от параметра use_context
     result = None
@@ -972,8 +960,7 @@ async def send_message(
                     context=context,
                     model=thread.model,
                     max_tokens=message_data.max_tokens,
-                    temperature=message_data.temperature,
-                    model_preference_id=model_preference_id
+                    temperature=message_data.temperature
                 )
                 print(f"Получен ответ от OpenAI с контекстом")
             except Exception as e:
@@ -984,8 +971,7 @@ async def send_message(
                     model=thread.model,
                     max_tokens=message_data.max_tokens,
                     temperature=message_data.temperature,
-                    system_prompt=message_data.system_prompt,
-                    model_preference_id=model_preference_id
+                    system_prompt=message_data.system_prompt
                 )
                 print(f"Получен ответ через резервный метод")
         else:
@@ -995,8 +981,7 @@ async def send_message(
                 model=thread.model,
                 max_tokens=message_data.max_tokens,
                 temperature=message_data.temperature,
-                system_prompt=message_data.system_prompt,
-                model_preference_id=model_preference_id
+                system_prompt=message_data.system_prompt
             )
             print(f"Получен ответ от ИИ без контекста")
 
@@ -1051,27 +1036,21 @@ async def send_message(
 
     print(f"Сохраняем ответ ассистента")
 
-    # Обрабатываем и сохраняем ответ с использованием функции process_and_save_message
-    try:
-        assistant_message = await process_and_save_message(
-            thread_id=thread_id,
-            response_data=result,
-            is_cached=False,
-            model_preference_id=model_preference_id,
-            db=db
-        )
-    except Exception as e:
-        error_msg = f"Ошибка при обработке и сохранении ответа: {str(e)}"
-        print(error_msg)
-
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": True,
-                "error_message": error_msg,
-                "error_type": "processing_error"
-            }
-        )
+    # Сохраняем ответ ассистента
+    assistant_message = MessageOrm(
+        thread_id=thread_id,
+        role="assistant",
+        content=result["text"],
+        tokens=result["tokens"].get("total_tokens", 0),
+        model=thread.model,
+        provider=thread.provider,
+        meta_data={
+            "tokens": result["tokens"],
+            "cost": result["cost"],
+            "with_context": use_context
+        }
+    )
+    db.add(assistant_message)
 
     # Обновляем время последнего сообщения в треде
     thread.last_message_at = datetime.now()
@@ -1080,8 +1059,9 @@ async def send_message(
     try:
         await db.commit()
         print(f"Транзакция успешно завершена, сообщение сохранено с ID: {assistant_message.id}")
+        await db.refresh(assistant_message)
     except Exception as e:
-        error_msg = f"Ошибка при обновлении треда: {str(e)}"
+        error_msg = f"Ошибка при сохранении сообщения в БД: {str(e)}"
         print(error_msg)
         await db.rollback()
 
@@ -1109,17 +1089,8 @@ async def send_message(
         print(f"Ошибка при добавлении фоновой задачи: {str(e)}")
         # Не возвращаем ошибку, так как статистика не критична для работы
 
-    # Обновляем токены во входном сообщении пользователя, если они доступны
-    if "tokens" in result and "prompt_tokens" in result["tokens"]:
-        try:
-            user_message.tokens_input = result["tokens"].get("prompt_tokens", 0)
-            user_message.tokens_total = user_message.tokens_input
-            await db.commit()
-        except Exception as e:
-            print(f"Ошибка при обновлении токенов сообщения пользователя: {str(e)}")
-            # Не критичная ошибка, можно продолжать
-
     return MessageSchema.from_orm(assistant_message)
+
 
 @router.post(
     "/completion",

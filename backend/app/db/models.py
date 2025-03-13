@@ -41,7 +41,6 @@ class ApiKeyOrm(Base):
 
     # Отношения
     user = relationship("UserOrm", back_populates="api_keys")
-    model_preferences = relationship("ModelPreferencesOrm", back_populates="api_key", cascade="all, delete-orphan")
 
 
 class UsageStatisticsOrm(Base):
@@ -113,26 +112,14 @@ class MessageOrm(Base):
     thread_id = Column(Integer, ForeignKey("threads.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # user, assistant, system
     content = Column(Text, nullable=False)
-
-    # Информация о токенах
-    tokens_input = Column(Integer, default=0)  # Входные токены (prompt)
-    tokens_output = Column(Integer, default=0)  # Выходные токены (completion)
-    tokens_total = Column(Integer, default=0)  # Общее количество токенов
-
-    # Ссылка на модель и провайдера
-    model = Column(String(50))  # Модель, которая использовалась для сообщения (legacy)
-    provider = Column(String(50))  # Провайдер модели (legacy)
-    model_preference_id = Column(Integer, ForeignKey("model_preferences.id", ondelete="SET NULL"), nullable=True)
-
-    # Дополнительная информация
-    is_cached = Column(Boolean, default=False)  # Был ли ответ получен из кэша
-    cost = Column(Float, default=0)  # Расчетная стоимость сообщения
-    meta_data = Column(JSON, default={})  # Дополнительные метаданные
+    tokens = Column(Integer, default=0)
+    model = Column(String(50))  # Модель, которая использовалась для сообщения
+    provider = Column(String(50))  # Провайдер модели
+    meta_data = Column(JSON, default={})  # Дополнительные метаданные (время генерации, ошибки и т.д.)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Отношения
     thread = relationship("ThreadOrm", back_populates="messages")
-    model_preference = relationship("ModelPreferencesOrm", back_populates="messages")
 
 
 class SavedPromptOrm(Base):
@@ -160,28 +147,14 @@ class ModelPreferencesOrm(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    api_key_id = Column(Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=False, index=True)
     provider = Column(String(50), nullable=False)
     model = Column(String(50), nullable=False)
-    description = Column(Text, nullable=True)  # Описание настроек
     max_tokens = Column(Integer, default=1000)
     temperature = Column(Float, default=0.7)
     system_prompt = Column(Text)
     is_default = Column(Boolean, default=False)
-
-    # Информация о взаимодействии с моделью
-    use_count = Column(Integer, default=0)  # Счетчик использования этих настроек
-    last_used_at = Column(DateTime(timezone=True), nullable=True)  # Время последнего использования
-
-    # Стоимость токенов (за 1000 токенов)
-    input_cost = Column(Float, nullable=True)  # Стоимость входных токенов за 1K
-    output_cost = Column(Float, nullable=True)  # Стоимость выходных токенов за 1K
-    cached_input_cost = Column(Float, nullable=True)  # Стоимость кэшированных входных токенов за 1K
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Отношения
     user = relationship("UserOrm")
-    messages = relationship("MessageOrm", back_populates="model_preference")
-    api_key = relationship("ApiKeyOrm", back_populates="model_preferences")

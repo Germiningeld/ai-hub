@@ -1,83 +1,57 @@
 import { defineStore } from 'pinia';
-import authService from '@/services/authService';
+import { ref, computed } from 'vue';
+import { authService } from '@/services/authService';
 
-export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    user: null,
-    isAuthenticated: localStorage.getItem('auth_token') !== null,
-    loading: false,
-    error: null
-  }),
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref(null);
+  const token = ref(localStorage.getItem('token') || null);
   
-  getters: {
-    currentUser: (state) => state.user,
-    isLoading: (state) => state.loading,
-    hasError: (state) => state.error !== null
-  },
+  const isLoggedIn = computed(() => !!token.value);
   
-  actions: {
-    async login(email, password) {
-      this.loading = true;
-      this.error = null;
+  async function login(email, password) {
+    try {
+      const response = await authService.login(email, password);
+      token.value = response.access_token;
+      localStorage.setItem('token', token.value);
       
-      try {
-        await authService.login(email, password);
-        this.isAuthenticated = true;
-        await this.fetchUserProfile();
-        return true;
-      } catch (error) {
-        this.error = error.message;
-        return false;
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    async register(username, email, password) {
-      this.loading = true;
-      this.error = null;
+      // Загружаем информацию о пользователе
+      await fetchUserInfo();
       
-      try {
-        await authService.register(username, email, password);
-        return true;
-      } catch (error) {
-        this.error = error.message;
-        return false;
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    async fetchUserProfile() {
-      if (!this.isAuthenticated) return;
-      
-      this.loading = true;
-      
-      try {
-        const userData = await authService.getCurrentUser();
-        this.user = userData;
-      } catch (error) {
-        this.error = error.message;
-        console.error('Ошибка при получении профиля пользователя:', error);
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    logout() {
-      authService.logout();
-      this.user = null;
-      this.isAuthenticated = false;
-      this.error = null;
-    },
-    
-    clearError() {
-      this.error = null;
+      return user.value;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
     }
-  },
-  
-  // Сохраняем состояние авторизации в localStorage
-  persist: {
-    paths: ['isAuthenticated']
   }
+  
+  async function fetchUserInfo() {
+    try {
+      const userData = await authService.getUserInfo();
+      user.value = userData;
+      return userData;
+    } catch (error) {
+      console.error('Error fetching user info:', error);
+      throw error;
+    }
+  }
+  
+  function logout() {
+    token.value = null;
+    user.value = null;
+    localStorage.removeItem('token');
+  }
+  
+  function updateUser(userData) {
+    user.value = { ...user.value, ...userData };
+  }
+  
+  return { 
+    user, 
+    token, 
+    isLoggedIn, 
+    login, 
+    logout, 
+    fetchUserInfo, 
+    updateUser 
+  };
 });

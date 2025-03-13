@@ -30,14 +30,6 @@ class OpenAIService(BaseAIService):
         super().__init__(api_key)
         self.client = AsyncOpenAI(api_key=api_key)
 
-        # Словарь с тарифами на токены для разных моделей
-        # Формат: {модель: (стоимость_input_токенов, стоимость_output_токенов)}
-        self.token_pricing = {
-            "gpt-4": (0.03 / 1000, 0.06 / 1000),  # $0.03 за 1K токенов ввода, $0.06 за 1K токенов вывода
-            "gpt-4-turbo": (0.01 / 1000, 0.03 / 1000),
-            "gpt-3.5-turbo": (0.0015 / 1000, 0.002 / 1000),
-        }
-
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -98,19 +90,16 @@ class OpenAIService(BaseAIService):
                 "total_tokens": response.usage.total_tokens
             }
 
-            # Рассчитываем стоимость
-            cost = await self.calculate_cost(
-                tokens_data["prompt_tokens"],
-                tokens_data["completion_tokens"],
-                model
-            )
+            # Получаем стоимость из ответа API (если она не предоставляется непосредственно в ответе,
+            # то она будет рассчитана в методе, который вызывает generate_completion)
+            # Для некоторых API может потребоваться дополнительный запрос для получения стоимости
 
             return {
                 "text": response.choices[0].message.content,
                 "model": model,
                 "provider": "openai",
                 "tokens": tokens_data,
-                "cost": cost
+                "from_cache": False
             }
         except Exception as e:
             error_info = {
@@ -169,19 +158,12 @@ class OpenAIService(BaseAIService):
                 "total_tokens": response.usage.total_tokens
             }
 
-            # Рассчитываем стоимость
-            cost = await self.calculate_cost(
-                tokens_data["prompt_tokens"],
-                tokens_data["completion_tokens"],
-                model
-            )
-
             return {
                 "text": response.choices[0].message.content,
                 "model": model,
                 "provider": "openai",
                 "tokens": tokens_data,
-                "cost": cost
+                "from_cache": False
             }
         except Exception as e:
             error_info = {
@@ -266,7 +248,8 @@ class OpenAIService(BaseAIService):
 
     async def calculate_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         """
-        Рассчитывает стоимость запроса на основе токенов для моделей OpenAI.
+        Метод оставлен для совместимости с базовым классом.
+        В текущей реализации стоимость должна приходить из внешнего источника.
 
         Args:
             prompt_tokens: Количество токенов в запросе
@@ -274,19 +257,9 @@ class OpenAIService(BaseAIService):
             model: Имя модели
 
         Returns:
-            Стоимость в долларах
+            0.0 (стоимость должна приходить из ответа API или другого источника)
         """
-        # Получаем тарифы для указанной модели или используем тарифы gpt-3.5-turbo по умолчанию
-        input_price, output_price = self.token_pricing.get(
-            model, self.token_pricing["gpt-3.5-turbo"]
-        )
-
-        # Рассчитываем стоимость
-        input_cost = prompt_tokens * input_price
-        output_cost = completion_tokens * output_price
-        total_cost = input_cost + output_cost
-
-        return total_cost
+        return 0.0
 
     async def update_usage_statistics(self,
                                       db: AsyncSession,
@@ -302,7 +275,7 @@ class OpenAIService(BaseAIService):
             user_id: ID пользователя
             tokens_data: Данные о токенах
             model: Название модели
-            cost: Стоимость запроса
+            cost: Стоимость запроса (получена из ответа API)
         """
         try:
             today = date.today()
@@ -393,7 +366,7 @@ class OpenAIService(BaseAIService):
                         full_response += content
                         yield {"text": content}
 
-            # Подсчет токенов и стоимости по завершении
+            # Подсчет токенов по завершении
             completion_tokens = len(tiktoken.encoding_for_model(model).encode(full_response))
             total_tokens = prompt_tokens + completion_tokens
 
@@ -403,13 +376,8 @@ class OpenAIService(BaseAIService):
                 "total_tokens": total_tokens
             }
 
-            cost = await self.calculate_cost(
-                prompt_tokens,
-                completion_tokens,
-                model
-            )
-
-            yield {"tokens": tokens_data, "cost": cost}
+            # Стоимость должна приходить из другого источника
+            yield {"tokens": tokens_data, "from_cache": False}
 
         except Exception as e:
             yield {"error": True, "error_message": str(e)}
@@ -454,7 +422,7 @@ class OpenAIService(BaseAIService):
                         full_response += content
                         yield {"text": content}
 
-            # Подсчет токенов и стоимости по завершении
+            # Подсчет токенов по завершении
             completion_tokens = len(tiktoken.encoding_for_model(model).encode(full_response))
             total_tokens = prompt_tokens + completion_tokens
 
@@ -464,13 +432,8 @@ class OpenAIService(BaseAIService):
                 "total_tokens": total_tokens
             }
 
-            cost = await self.calculate_cost(
-                prompt_tokens,
-                completion_tokens,
-                model
-            )
-
-            yield {"tokens": tokens_data, "cost": cost}
+            # Стоимость должна приходить из другого источника
+            yield {"tokens": tokens_data, "from_cache": False}
 
         except Exception as e:
             yield {"error": True, "error_message": str(e)}

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en" class="h-100">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+			integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+			integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+			crossorigin="anonymous"></script>
+		<title>AIHub - Чаты</title>
+	</head>
+	<body class="h-100">
+		<div class="d-flex flex-row align-self-stretch h-100">
+			<!-- Боковое меню -->
+			<div class="sidebar d-flex flex-column justify-content-between">
+				<!-- Логотип без кнопки сворачивания -->
+				<div data-v-7ade5772="" class="sidebar-header d-flex align-items-center p-3">
+					<div data-v-7ade5772="" class="logo cursor-pointer"><img data-v-7ade5772=""
+						src="/src/assets/css/logo.svg" alt="AIHub" height="30"></div>
+				</div>
+				<!-- Навигационное меню -->
+				<div data-v-7ade5772="" class="sidebar-menu">
+					<ul data-v-7ade5772="" class="nav flex-column">
+						<li data-v-7ade5772="" class="nav-item"><a data-v-7ade5772="" aria-current="page" href="/chat"
+							class="router-link-active router-link-exact-active nav-link active" title="Чат"><i
+							data-v-7ade5772="" class="bi bi-chat-dots"></i><span data-v-7ade5772="">Чат</span></a>
+						</li>
+						<li data-v-7ade5772="" class="nav-item"><a data-v-7ade5772="" href="/prompts" class="nav-link"
+							title="Библиотека промптов"><i data-v-7ade5772="" class="bi bi-collection"></i><span
+							data-v-7ade5772="">Библиотека промптов</span></a></li>
+						<li data-v-7ade5772="" class="nav-item"><a data-v-7ade5772="" href="/analytics" class="nav-link"
+							title="Аналитика"><i data-v-7ade5772="" class="bi bi-graph-up"></i><span
+							data-v-7ade5772="">Аналитика</span></a></li>
+						<li data-v-7ade5772="" class="nav-item"><a data-v-7ade5772="" href="/settings" class="nav-link"
+							title="Настройки"><i data-v-7ade5772="" class="bi bi-gear"></i><span
+							data-v-7ade5772="">Настройки</span></a></li>
+					</ul>
+				</div>
+				<!-- Нижняя часть сайдбара с выходом -->
+				<div data-v-7ade5772="" class="sidebar-footer">
+					<ul data-v-7ade5772="" class="nav flex-column">
+						<li data-v-7ade5772="" class="nav-item"><a data-v-7ade5772="" href="#" class="nav-link"
+							title="Выход"><i data-v-7ade5772="" class="bi bi-box-arrow-left"></i><span
+							data-v-7ade5772="">Выход</span></a></li>
+					</ul>
+				</div>
+			</div>
+			<!-- Основной контент -->
+			<div class="flex-grow-1 position-relative">
+				<!-- Дополнительная кнопка вне блока col-threads -->
+				<button class="btn btn-sm btn-outline-primary position-absolute" style="top: 15px; left: 15px; z-index: 100;">
+				<i class="bi bi-list"></i> Меню
+				</button>
+				<div class="row thread-layout h-100">
+					<!-- Колонка с тредами - используем стандартные классы Bootstrap -->
+					<div class="col-sm-4 col-md-4 col-lg-3 col-threads">
+						<!-- Заголовок списка тредов -->
+						<div class="thread-list-header d-flex align-items-center justify-content-end p-3 border-bottom">
+							<div class="d-flex gap-1">
+								<button class="btn btn-sm btn-primary">
+								<i class="bi bi-plus-lg"></i> Новая
+								</button>
+								<button class="btn btn-sm btn-outline-secondary d-md-none">
+								<i class="bi bi-x-lg"></i>
+								</button>
+							</div>
+						</div>
+						<!-- Контейнер списка -->
+						<div class="thread-list">
+							<!-- Поиск по тредам -->
+							<div class="px-3 pt-3">
+								<div class="input-group input-group-sm mb-2">
+									<span class="input-group-text bg-light border-end-0">
+									<i class="bi bi-search"></i>
+									</span>
+									<input type="text" class="form-control border-start-0" placeholder="Поиск бесед...">
+								</div>
+								<!-- Фильтры по категориям -->
+								<div class="mb-3">
+									<select class="form-select form-select-sm">
+										<option value="">Все категории</option>
+										<option value="1">Разработка</option>
+										<option value="2">Дизайн</option>
+										<option value="3">Аналитика</option>
+									</select>
+								</div>
+							</div>
+							<!-- Тело списка тредов (скроллируемая область) -->
+							<div class="thread-list-body">
+								<div>
+									<!-- Закрепленный тред -->
+									<div class="thread-item p-3 border-bottom cursor-pointer pinned position-relative">
+										<div class="d-flex align-items-start">
+											<!-- Иконка треда -->
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(67, 97, 238);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<!-- Контент треда -->
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<!-- Контейнер заголовка и счетчика -->
+												<div class="position-relative mb-1">
+													<!-- Контейнер для текста заголовка с градиентом -->
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															<i class="bi bi-pin-angle me-1 text-primary"></i>
+															Оптимизация SQL запросов и еще какая-то длинная хрень
+														</div>
+													</div>
+												</div>
+												<!-- Превью сообщения - ограничение в 2 строки -->
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как можно оптимизировать JOIN операции для больших таблиц?
+												</p>
+												<!-- Дата -->
+												<small class="text-muted d-block">16.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">12</small>
+										</div>
+									</div>
+									<!-- Обычный тред 4 -->
+									<div class="thread-item p-3 border-bottom cursor-pointer position-relative">
+										<div class="d-flex align-items-start">
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(76, 201, 240);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<div class="position-relative mb-1">
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															Оптимизация воронки продаж
+														</div>
+													</div>
+												</div>
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как улучшить конверсию на этапе перехода от ознакомления с продуктом к оформлению заказа? У нас высокий процент отказов.
+												</p>
+												<small class="text-muted d-block">13.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">3</small>
+										</div>
+									</div>
+									<!-- Обычный тред 4 -->
+									<div class="thread-item p-3 border-bottom cursor-pointer position-relative">
+										<div class="d-flex align-items-start">
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(76, 201, 240);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<div class="position-relative mb-1">
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															Оптимизация воронки продаж
+														</div>
+													</div>
+												</div>
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как улучшить конверсию на этапе перехода от ознакомления с продуктом к оформлению заказа? У нас высокий процент отказов.
+												</p>
+												<small class="text-muted d-block">13.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">3</small>
+										</div>
+									</div>
+									<!-- Обычный тред 4 -->
+									<div class="thread-item p-3 border-bottom cursor-pointer position-relative">
+										<div class="d-flex align-items-start">
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(76, 201, 240);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<div class="position-relative mb-1">
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															Оптимизация воронки продаж
+														</div>
+													</div>
+												</div>
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как улучшить конверсию на этапе перехода от ознакомления с продуктом к оформлению заказа? У нас высокий процент отказов.
+												</p>
+												<small class="text-muted d-block">13.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">3</small>
+										</div>
+									</div>
+									<!-- Обычный тред 4 -->
+									<div class="thread-item p-3 border-bottom cursor-pointer position-relative">
+										<div class="d-flex align-items-start">
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(76, 201, 240);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<div class="position-relative mb-1">
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															Оптимизация воронки продаж
+														</div>
+													</div>
+												</div>
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как улучшить конверсию на этапе перехода от ознакомления с продуктом к оформлению заказа? У нас высокий процент отказов.
+												</p>
+												<small class="text-muted d-block">13.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">3</small>
+										</div>
+									</div>
+									<!-- Обычный тред 4 -->
+									<div class="thread-item p-3 border-bottom cursor-pointer position-relative">
+										<div class="d-flex align-items-start">
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(76, 201, 240);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<div class="position-relative mb-1">
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															Оптимизация воронки продаж
+														</div>
+													</div>
+												</div>
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как улучшить конверсию на этапе перехода от ознакомления с продуктом к оформлению заказа? У нас высокий процент отказов.
+												</p>
+												<small class="text-muted d-block">13.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">3</small>
+										</div>
+									</div>
+									<!-- Обычный тред 4 -->
+									<div class="thread-item p-3 border-bottom cursor-pointer position-relative">
+										<div class="d-flex align-items-start">
+											<div class="thread-icon me-2 flex-shrink-0" style="background-color: rgb(76, 201, 240);">
+												<i class="bi bi-stars"></i>
+											</div>
+											<div class="flex-grow-1 min-width-0 overflow-hidden">
+												<div class="position-relative mb-1">
+													<div class="title-container position-relative overflow-hidden pe-5">
+														<div class="title-text fw-bold fs-6 text-nowrap text-truncate">
+															Оптимизация воронки продаж
+														</div>
+													</div>
+												</div>
+												<p class="mb-1 text-truncate-2 small text-muted">
+													Как улучшить конверсию на этапе перехода от ознакомления с продуктом к оформлению заказа? У нас высокий процент отказов.
+												</p>
+												<small class="text-muted d-block">13.03.2024</small>
+											</div>
+										</div>
+										<!-- Счетчик сообщений (абсолютное позиционирование) -->
+										<div class="message-count-container position-absolute top-0 end-0 mt-3 me-3">
+											<small class="message-count">3</small>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<!-- Колонка с основным контентом -->
+					<div class="col message-list">
+						<div class="d-flex justify-content-center h-100">
+							<div class="col-md-8 d-flex flex-column h-100 py-3">
+								<!-- Верхняя часть остается фиксированной -->
+								<div class="mb-3">
+									<h5 >Новая беседа</h5>
+									<div class="chat-controls d-flex justify-content-between p-3  bg-body"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-gear"></i><span class="d-none d-md-inline ms-1">Настройки</span></button><div class="form-check form-switch d-flex align-items-center"><input class="form-check-input me-2" type="checkbox" id="useContextTop"><label class="form-check-label small" for="useContextTop">Использовать контекст</label></div></div>
+								</div>
+								
+								<!-- Контейнер для сообщений и формы ввода -->
+								<div class="d-flex flex-column h-100">
+									<!-- Список сообщений - скроллируемый -->
+									<div class="message-list-container position-relative flex-grow-1 overflow-hidden">
+										<div class="message-list position-absolute top-0 start-0 end-0 bottom-0 overflow-auto">
+											<div class="message-item message-user">
+												<!-- Аватар и роль -->
+												<div class="message-avatar message-avatar-user"><i class="bi bi-person-circle"></i></div>
+												<!-- Контент сообщения -->
+												<div class="message-content">
+													<!-- Верхняя панель с информацией и действиями -->
+													<div class="message-header d-flex align-items-center mb-1">
+														<span class="message-role">Вы</span><span class="message-time ms-2 text-muted small">10:30</span><!-- Действия для сообщения (видимы при наведении) -->
+														<div class="message-actions ms-auto">
+															<button class="btn btn-sm btn-link p-0 me-2"><i class="bi bi-clipboard"></i></button><button class="btn btn-sm btn-link p-0 me-2"><i class="bi bi-pencil"></i></button><!--v-if--><!--v-if-->
+														</div>
+													</div>
+													<!-- Текст сообщения с форматированием markdown (в реальности понадобится markdown-парсер) -->
+													<div class="message-text">Как оптимизировать JOIN операции для больших таблиц в PostgreSQL?</div>
+													<!-- Метаданные для сообщений ассистента --><!--v-if-->
+												</div>
+											</div>
+											<div class="message-item message-assistant">
+												<!-- Аватар и роль -->
+												<div class="message-avatar message-avatar-assistant"><i class="bi bi-stars"></i></div>
+												<!-- Контент сообщения -->
+												<div class="message-content">
+													<!-- Верхняя панель с информацией и действиями -->
+													<div class="message-header d-flex align-items-center mb-1">
+														<span class="message-role">Ассистент</span><span class="message-time ms-2 text-muted small">10:31</span><!-- Действия для сообщения (видимы при наведении) -->
+														<div class="message-actions ms-auto">
+															<button class="btn btn-sm btn-link p-0 me-2"><i class="bi bi-clipboard"></i></button><!--v-if--><button class="btn btn-sm btn-link p-0 me-2"><i class="bi bi-bookmark"></i></button><button class="btn btn-sm btn-link p-0"><i class="bi bi-arrow-clockwise"></i></button>
+														</div>
+													</div>
+													<!-- Текст сообщения с форматированием markdown (в реальности понадобится markdown-парсер) -->
+													<div class="message-text">Для оптимизации JOIN операций с большими таблицами в PostgreSQL рекомендую следующие подходы:<br><br>1. **Правильно расставьте индексы**:<br>   - Создайте индексы на столбцах соединения<br>   - Используйте составные индексы для часто используемых условий WHERE<br><br>2. **Выбирайте правильный тип JOIN**:<br>   - INNER JOIN обычно работает быстрее LEFT JOIN<br>   - Рассмотрите возможность использования HASH JOIN для равенства условий<br><br>3. **Анализируйте планы выполнения запросов**:<br>   - Используйте EXPLAIN ANALYZE для понимания, как PostgreSQL выполняет ваш запрос<br>   - Ищите узкие места и последовательные сканы<br><br>Хотите, чтобы я рассмотрел конкретный пример запроса?</div>
+													<!-- Метаданные для сообщений ассистента -->
+													<div class="message-meta mt-2 small text-muted"><span data-v-003331aa="">258 токенов</span><span data-v-003331aa=""> · </span><span data-v-003331aa="">$0.0060</span></div>
+												</div>
+											</div>
+										</div>
+									</div>
+									
+									<!-- Поле ввода всегда внизу -->
+									<div class="mt-3">
+										<div class="position-relative">
+											<textarea class="form-control chat-textarea" placeholder="Введите сообщение... (Enter для отправки, Shift+Enter для переноса строки)" rows="3" style="height: 84px;"></textarea>
+											<!-- Кнопки внутри поля ввода -->
+											<div class="chat-input-buttons"><button class="btn btn-icon chat-input-send-btn" title="Отправить сообщение"><i class="bi bi-send-fill"></i></button></div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<style>
+			/* 
+			* Основные стили для страницы
+			*/
+			/* Базовые стили для сетки */
+			.sidebar {
+			width: 250px;
+			background-color: #f8f9fa;
+			border-right: 1px solid #dee2e6;
+			height: 100vh;
+			overflow-y: auto;
+			}
+			/* Контейнер списка тредов */
+			.thread-layout {
+			--bs-gutter-x: 0;
+			width: 100%;
+			margin: 0;
+			}
+			/* Колонка с тредами */
+			.col-threads {
+			max-width: 460px;
+			padding: 0;
+			border-right: 1px solid #dee2e6;
+			height: 100vh;
+			display: flex;
+			flex-direction: column;
+			position: relative;
+			overflow: hidden;
+			}
+			/* Заголовок списка */
+			.thread-list-header {
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			z-index: 10;
+			background-color: #fff;
+			}
+			/* Блок поиска и фильтров */
+			.thread-list .px-3.pt-3 {
+			position: absolute;
+			top: 60px;
+			left: 0;
+			right: 0;
+			z-index: 9;
+			background-color: #fff;
+			}
+			/* Тело списка */
+			.thread-list-body {
+			position: absolute;
+			top: 150px;
+			bottom: 0;
+			left: 0;
+			right: 0;
+			overflow-y: auto;
+			overflow-x: hidden;
+			}
+			/* Список тредов */
+			.thread-list {
+			height: 100%;
+			overflow: hidden;
+			}
+			/* Курсор-указатель для элементов списка */
+			.cursor-pointer {
+			cursor: pointer;
+			}
+			/* Стили для элемента треда */
+			.thread-icon {
+			width: 32px !important;
+			height: 32px !important;
+			min-width: 32px !important;
+			min-height: 32px !important;
+			flex: 0 0 32px !important;
+			border-radius: 4px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			overflow: hidden;
+			}
+			.thread-icon .bi {
+			color: white;
+			font-size: 16px;
+			}
+			/* Контейнер для заголовка */
+			.title-container {
+			max-width: 100%;
+			}
+			/* Текст заголовка */
+			.title-text {
+			max-width: 100%;
+			}
+			/* Стиль счетчика сообщений */
+			.message-count {
+			color: #6c757d;
+			font-size: 0.75rem;
+			background-color: rgba(240,240,240,0.7);
+			padding: 1px 6px;
+			border-radius: 10px;
+			min-width: 24px;
+			text-align: center;
+			}
+			/* Улучшенное обрезание текста для двух строк */
+			.text-truncate-2 {
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			max-height: 2.8em;
+			word-break: break-word;
+			padding-right: 40px;
+			}
+			/* Стили для закрепленных тредов */
+			.thread-item.pinned {
+			background-color: rgba(67, 97, 238, 0.05);
+			border-left: 3px solid rgb(67, 97, 238);
+			padding-left: calc(1rem - 3px) !important;
+			}
+			.thread-item.pinned:hover {
+			background-color: rgba(67, 97, 238, 0.1);
+			}
+			
+			/* Стили для сообщений */
+			.message-item {
+			display: flex;
+			margin-bottom: 1.5rem;
+			}
+			
+			.message-avatar {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			margin-right: 12px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			}
+			
+			.message-avatar-user {
+			background-color: #f8f9fa;
+			}
+			
+			.message-avatar-assistant {
+			background-color: rgb(67, 97, 238);
+			color: white;
+			}
+			
+			.message-content {
+			flex: 1;
+			min-width: 0;
+			}
+			
+			.message-actions {
+			opacity: 0;
+			transition: opacity 0.2s;
+			}
+			
+			.message-item:hover .message-actions {
+			opacity: 1;
+			}
+			
+			.chat-input-buttons {
+			position: absolute;
+			bottom: 10px;
+			right: 10px;
+			}
+			
+			/* Адаптивность для маленьких экранов */
+			@media (max-width: 768px) {
+			.sidebar {
+				width: 60px;
+			}
+			
+			.sidebar span {
+				display: none;
+			}
+			
+			.sidebar .nav-item {
+				text-align: center;
+			}
+			
+			.thread-icon {
+				width: 28px !important;
+				height: 28px !important;
+			}
+			}
+            .message-list {
+                background-color: #f8f9fa;
+            }
+		</style>
+	</body>
+</html>

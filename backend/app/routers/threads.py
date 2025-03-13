@@ -985,6 +985,8 @@ async def send_message(
             )
             print(f"Получен ответ от ИИ без контекста")
 
+        print(result)
+
     except Exception as e:
         # Подробно логируем ошибку
         error_message = f"Ошибка при генерации ответа: {str(e)}, тип: {type(e).__name__}"
@@ -1129,6 +1131,8 @@ async def generate_completion(
         temperature=request.temperature,
         system_prompt=request.system_prompt
     )
+
+    print(f"Результат генерации: {result}")
 
     # Проверяем наличие ошибки
     if result.get("error", False):

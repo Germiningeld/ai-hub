@@ -1,63 +1,196 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import { apiKeysService } from '@/services/apiKeysService';
+import api from '@/services/api';
 
-export const useApiKeysStore = defineStore('apiKeys', () => {
-  const apiKeys = ref([]);
+export const useApiKeysStore = defineStore('apiKeys', {
+  state: () => ({
+    keys: [],
+    loading: false,
+    error: null
+  }),
   
-  async function fetchApiKeys() {
-    try {
-      const data = await apiKeysService.getApiKeys();
-      apiKeys.value = data;
-      return data;
-    } catch (error) {
-      console.error('Error fetching API keys:', error);
-      throw error;
-    }
-  }
+  getters: {
+    // Получение списка API ключей
+    getAllKeys: (state) => state.keys,
+    
+    // Получение ключей по провайдеру
+    getKeysByProvider: (state) => (provider) => {
+      return state.keys.filter(key => key.provider === provider);
+    },
+    
+    // Получение активного ключа для провайдера
+    getActiveKeyForProvider: (state) => (provider) => {
+      return state.keys.find(key => key.provider === provider && key.is_active);
+    },
+    
+    // Проверка наличия активного ключа для провайдера
+    hasActiveKeyForProvider: (state) => (provider) => {
+      return state.keys.some(key => key.provider === provider && key.is_active);
+    },
+    
+    // Проверка загрузки
+    isLoading: (state) => state.loading,
+    
+    // Получение ошибки
+    getError: (state) => state.error
+  },
   
-  async function createApiKey(keyData) {
-    try {
-      const newKey = await apiKeysService.createApiKey(keyData);
-      apiKeys.value.push(newKey);
-      return newKey;
-    } catch (error) {
-      console.error('Error creating API key:', error);
-      throw error;
-    }
-  }
-  
-  async function updateApiKey(keyData) {
-    try {
-      const updatedKey = await apiKeysService.updateApiKey(keyData.id, keyData);
-      const index = apiKeys.value.findIndex(key => key.id === keyData.id);
+  actions: {
+    // Загрузка списка API ключей
+    async fetchApiKeys() {
+      this.loading = true;
+      this.error = null;
       
-      if (index !== -1) {
-        apiKeys.value[index] = updatedKey;
+      try {
+        const response = await api.get('/api-keys/');
+        this.keys = response.data;
+        return this.keys;
+      } catch (error) {
+        this.error = error.response?.data?.error_message || error.message;
+        console.error('Error fetching API keys:', error);
+        return [];
+      } finally {
+        this.loading = false;
       }
+    },
+    
+    // Создание нового API ключа
+    async createApiKey(keyData) {
+      this.loading = true;
+      this.error = null;
       
-      return updatedKey;
-    } catch (error) {
-      console.error('Error updating API key:', error);
-      throw error;
+      try {
+        const response = await api.post('/api-keys/', keyData);
+        // Добавляем новый ключ в массив
+        this.keys.push(response.data);
+        return response.data;
+      } catch (error) {
+        this.error = error.response?.data?.error_message || error.message;
+        console.error('Error creating API key:', error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    // Обновление API ключа (без передачи значения ключа на сервер)
+    async updateApiKey(keyId, keyData) {
+      this.loading = true;
+      this.error = null;
+      
+      try {
+        // Находим текущий ключ в массиве
+        const existingKey = this.keys.find(key => key.id === keyId);
+        if (!existingKey) {
+          throw new Error('API key not found');
+        }
+        
+        // Создаем новый объект данных, исключая поле api_key
+        const { api_key, ...dataToUpdate } = keyData;
+        
+        const response = await api.put(`/api-keys/${keyId}`, dataToUpdate);
+        
+        // Обновляем ключ в массиве
+        const index = this.keys.findIndex(key => key.id === keyId);
+        if (index !== -1) {
+          // Обновляем запись локально, сохраняя исходное значение api_key
+          this.keys[index] = {
+            ...response.data,
+            api_key: existingKey.api_key
+          };
+        }
+        
+        return this.keys[index];
+      } catch (error) {
+        this.error = error.response?.data?.error_message || error.message;
+        console.error('Error updating API key:', error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    // Удаление API ключа
+    async deleteApiKey(keyId) {
+      this.loading = true;
+      this.error = null;
+      
+      try {
+        await api.delete(`/api-keys/${keyId}`);
+        
+        // Удаляем ключ из массива
+        this.keys = this.keys.filter(key => key.id !== keyId);
+        
+        return true;
+      } catch (error) {
+        this.error = error.response?.data?.error_message || error.message;
+        console.error('Error deleting API key:', error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    // Активация/деактивация ключа
+    async toggleKeyStatus(keyId, isActive) {
+      const keyIndex = this.keys.findIndex(key => key.id === keyId);
+      if (keyIndex === -1) return false;
+      
+      return await this.updateApiKey(keyId, {
+        is_active: isActive
+      });
+    },
+    
+    // Проверка валидности API ключа (без сохранения)
+    async validateApiKey(provider, apiKey) {
+      this.loading = true;
+      this.error = null;
+      
+      try {
+        const response = await api.post('/api-keys/validate', {
+          provider,
+          api_key: apiKey
+        });
+        
+        return response.data.valid;
+      } catch (error) {
+        this.error = error.response?.data?.error_message || error.message;
+        console.error('Error validating API key:', error);
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    // Получение списка доступных провайдеров
+    getAvailableProviders() {
+      return [
+        { id: 'openai', name: 'OpenAI (ChatGPT)', description: 'GPT-3.5, GPT-4, GPT-4o' },
+        { id: 'anthropic', name: 'Anthropic (Claude)', description: 'Claude 3 (Haiku, Sonnet, Opus)' }
+      ];
+    },
+    
+    // Сброс состояния хранилища
+    resetState() {
+      this.keys = [];
+      this.loading = false;
+      this.error = null;
+    },
+    
+    // Очистка ошибки
+    clearError() {
+      this.error = null;
     }
-  }
+  },
   
-  async function deleteApiKey(keyId) {
-    try {
-      await apiKeysService.deleteApiKey(keyId);
-      apiKeys.value = apiKeys.value.filter(key => key.id !== keyId);
-    } catch (error) {
-      console.error('Error deleting API key:', error);
-      throw error;
-    }
+  // Сохраняем данные о ключах в localStorage для быстрого доступа
+  persist: {
+    enabled: true,
+    strategies: [
+      {
+        key: 'apiKeys',
+        storage: localStorage,
+        paths: ['keys']
+      }
+    ]
   }
-  
-  return {
-    apiKeys,
-    fetchApiKeys,
-    createApiKey,
-    updateApiKey,
-    deleteApiKey
-  };
 });

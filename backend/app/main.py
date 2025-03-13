@@ -10,7 +10,7 @@ from app.core.settings import settings
 from app.db.database import engine, Base, get_async_session
 from app.db.models import UserOrm
 from app.core.security import get_password_hash
-
+from app.routers import api_keys, auth, users, threads, categories, prompts, model_preferences, statistics, models
 # Создаем все таблицы в БД при запуске приложения
 # В продакшене лучше использовать миграции через Alembic
 # Base.metadata.create_all(bind=engine)
@@ -61,6 +61,9 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 
 # API ключи
 app.include_router(api_keys.router, prefix="/api/api-keys", tags=["api-keys"])
+
+# Модели AI и провайдеры
+app.include_router(models.router, prefix="/api/ai-models", tags=["ai-models"])
 
 # Чаты и треды
 app.include_router(threads.router, prefix="/api/threads", tags=["threads"])

@@ -1,5 +1,5 @@
 from enum import Enum
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Float, Date, event
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Float, Date, event, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, validates, Session
 from sqlalchemy.sql import func
@@ -215,7 +215,6 @@ class ApiKeyOrm(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     provider_id = Column(Integer, ForeignKey("providers.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     api_key = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     name = Column(String(100))
@@ -276,9 +275,7 @@ class UsageStatisticsOrm(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     provider_id = Column(Integer, ForeignKey("providers.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     model_id = Column(Integer, ForeignKey("ai_models.id", ondelete="CASCADE"), nullable=False, index=True)
-    model_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     request_date = Column(Date, nullable=False, index=True)
     request_count = Column(Integer, default=0)
     tokens_prompt = Column(Integer, default=0)
@@ -343,9 +340,7 @@ class ThreadOrm(Base):
     is_pinned = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
     provider_id = Column(Integer, ForeignKey("providers.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     model_id = Column(Integer, ForeignKey("ai_models.id", ondelete="CASCADE"), nullable=False, index=True)
-    model_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_message_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -355,7 +350,7 @@ class ThreadOrm(Base):
     user = relationship("UserOrm", back_populates="threads")
     category = relationship("ThreadCategoryOrm", back_populates="threads")
     messages = relationship("MessageOrm", back_populates="thread", cascade="all, delete-orphan", lazy="dynamic",
-                            order_by="MessageOrm.created_at")
+                           order_by="MessageOrm.created_at")
     provider_obj = relationship("ProviderOrm", back_populates="threads")
     model_obj = relationship("ModelOrm", back_populates="threads")
 
@@ -463,9 +458,7 @@ class ModelPreferencesOrm(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     provider_id = Column(Integer, ForeignKey("providers.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     model_id = Column(Integer, ForeignKey("ai_models.id", ondelete="CASCADE"), nullable=False, index=True)
-    model_code = Column(String(50), nullable=False, index=True)  # Оставлено для обратной совместимости
     max_tokens = Column(Integer, default=1000)
     temperature = Column(Float, default=0.7)
     system_prompt = Column(Text)

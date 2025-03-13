@@ -1,8 +1,16 @@
 import os
 
 
-def print_tree(directory='.', exclude_dirs=['.venv', '.idea', '__pycache__', '.git', '.pytest_cache', 'node_modules',
- 'backend'                                           ]):
+def print_tree(directory='.', exclude_dirs=[
+    '.venv',
+    '.idea',
+    '__pycache__',
+    '.git',
+    '.pytest_cache',
+    'node_modules',
+    'alembic',
+    'frontend'
+]):
     for root, dirs, files in os.walk(directory):
         # Исключаем нежелательные директории
         dirs[:] = [d for d in dirs if d not in exclude_dirs]

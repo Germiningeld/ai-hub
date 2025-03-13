@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.services.base_ai_service import BaseAIService
 from app.core.settings import settings
-from app.db.models import UsageStatisticsOrm
+from app.db.models import UsageStatisticsOrm, ModelOrm, ProviderOrm
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 from sqlalchemy.exc import SQLAlchemyError
@@ -280,11 +280,31 @@ class OpenAIService(BaseAIService):
         try:
             today = date.today()
 
+            # Получаем ID провайдера и модели
+            provider_query = select(ProviderOrm).filter(ProviderOrm.code == "openai")
+            provider_result = await db.execute(provider_query)
+            provider = provider_result.scalars().first()
+
+            if not provider:
+                print("Провайдер OpenAI не найден в базе данных")
+                return
+
+            model_query = select(ModelOrm).filter(
+                ModelOrm.code == model,
+                ModelOrm.provider_id == provider.id
+            )
+            model_result = await db.execute(model_query)
+            model_obj = model_result.scalars().first()
+
+            if not model_obj:
+                print(f"Модель {model} не найдена в базе данных")
+                return
+
             # Ищем или создаем запись статистики за сегодня
             query = select(UsageStatisticsOrm).filter(
                 UsageStatisticsOrm.user_id == user_id,
-                UsageStatisticsOrm.provider == "openai",
-                UsageStatisticsOrm.model == model,
+                UsageStatisticsOrm.provider_id == provider.id,
+                UsageStatisticsOrm.model_id == model_obj.id,
                 UsageStatisticsOrm.request_date == today
             )
 
@@ -302,8 +322,8 @@ class OpenAIService(BaseAIService):
                 # Создаем новую запись
                 new_stat = UsageStatisticsOrm(
                     user_id=user_id,
-                    provider="openai",
-                    model=model,
+                    provider_id=provider.id,
+                    model_id=model_obj.id,
                     request_date=today,
                     request_count=1,
                     tokens_prompt=tokens_data.get("prompt_tokens", 0),
@@ -437,3 +457,153 @@ class OpenAIService(BaseAIService):
 
         except Exception as e:
             yield {"error": True, "error_message": str(e)}
+
+    async def sync_openai_models(self, db: AsyncSession) -> Dict[str, Any]:
+        """
+        Получает список доступных моделей от OpenAI API и синхронизирует их с базой данных.
+
+        Функция:
+        1. Получает актуальный список моделей от API
+        2. Добавляет новые модели, которых нет в БД
+        3. Обновляет существующие модели
+        4. Отключает модели, которые больше не возвращаются API
+
+        Args:
+            db: Асинхронная сессия базы данных
+
+        Returns:
+            Словарь с результатами синхронизации:
+            {
+                "new_models": [список новых моделей],
+                "updated_models": [список обновленных моделей],
+                "deactivated_models": [список отключенных моделей]
+            }
+        """
+        from sqlalchemy import select
+        from app.db.models import ProviderOrm, ModelOrm
+
+        # Результаты синхронизации
+        result = {
+            "new_models": [],
+            "updated_models": [],
+            "deactivated_models": []
+        }
+
+        try:
+            # Получаем ID провайдера OpenAI
+            provider_query = select(ProviderOrm).filter(ProviderOrm.code == "openai")
+            provider_result = await db.execute(provider_query)
+            provider = provider_result.scalars().first()
+
+            if not provider:
+                return {
+                    "error": True,
+                    "error_message": "Провайдер OpenAI не найден в базе данных"
+                }
+
+            # Получаем список всех моделей провайдера из БД
+            models_query = select(ModelOrm).filter(ModelOrm.provider_id == provider.id)
+            models_result = await db.execute(models_query)
+            db_models = {model.code: model for model in models_result.scalars().all()}
+
+            # Получаем актуальный список моделей от OpenAI API
+            api_models_response = await self.client.models.list()
+
+            # Обработка ответа от API
+            # Проверяем, что ответ содержит список моделей в поле 'data'
+            if hasattr(api_models_response, 'data'):
+                api_models = api_models_response.data
+            else:
+                # Если 'data' отсутствует, возможно мы получили уже списк моделей
+                api_models = api_models_response
+
+            # Список кодов актуальных моделей для последующего отключения устаревших
+            active_model_codes = set()
+
+            # Отключаем автоматические события SQLAlchemy
+            # Это предотвратит вызов кода, который пытается выполнить необработанный SQL
+            from sqlalchemy import event
+            from app.db.models import model_after_save
+
+            # Временно отключаем обработчик событий
+            event.remove(ModelOrm, 'after_insert', model_after_save)
+            event.remove(ModelOrm, 'after_update', model_after_save)
+
+            # Обрабатываем каждую модель из ответа API
+            for api_model in api_models:
+                # В зависимости от формата ответа API получаем id модели
+                if hasattr(api_model, 'id'):
+                    model_id = api_model.id
+                elif isinstance(api_model, dict) and 'id' in api_model:
+                    model_id = api_model['id']
+                else:
+                    # Если не можем получить id, пропускаем эту модель
+                    continue
+
+                active_model_codes.add(model_id)
+
+                # Базовая информация о модели
+                model_info = {
+                    "code": model_id,
+                    "name": model_id,  # В API нет отдельного поля для имени, используем id
+                    "description": f"OpenAI модель {model_id}",
+                    "is_active": True,
+                    "supports_streaming": True,  # Большинство современных моделей поддерживают стриминг
+                    "max_context_length": 4096,  # Значение по умолчанию
+                    "input_price": 0.0,  # Значение по умолчанию
+                    "output_price": 0.0,  # Значение по умолчанию
+                }
+
+                # Если модель уже существует в БД, обновляем её
+                if model_id in db_models:
+                    db_model = db_models[model_id]
+
+                    # Проверяем, нужно ли обновлять модель
+                    need_update = False
+                    for key, value in model_info.items():
+                        if hasattr(db_model, key) and getattr(db_model, key) != value:
+                            setattr(db_model, key, value)
+                            need_update = True
+
+                    if need_update:
+                        result["updated_models"].append(model_id)
+                else:
+                    # Создаем новую модель
+                    new_model = ModelOrm(
+                        provider_id=provider.id,
+                        **model_info
+                    )
+                    db.add(new_model)
+                    result["new_models"].append(model_id)
+
+            # Отключаем модели, которых нет в ответе API
+            for db_model_code, db_model in db_models.items():
+                if db_model_code not in active_model_codes and db_model.is_active:
+                    db_model.is_active = False
+                    result["deactivated_models"].append(db_model_code)
+
+            # Сохраняем изменения в БД
+            await db.commit()
+
+            # Восстанавливаем обработчики событий
+            event.listen(ModelOrm, 'after_insert', model_after_save)
+            event.listen(ModelOrm, 'after_update', model_after_save)
+
+            return result
+
+        except Exception as e:
+            await db.rollback()
+            # Попытка восстановить обработчики событий в случае ошибки
+            try:
+                from sqlalchemy import event
+                from app.db.models import model_after_save
+                event.listen(ModelOrm, 'after_insert', model_after_save)
+                event.listen(ModelOrm, 'after_update', model_after_save)
+            except:
+                pass
+
+            return {
+                "error": True,
+                "error_message": f"Ошибка при синхронизации моделей OpenAI: {str(e)}",
+                "error_type": type(e).__name__
+            }

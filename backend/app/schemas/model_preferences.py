@@ -3,8 +3,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 class ModelPreferencesBaseSchema(BaseModel):
-    provider_id: int = Field(..., description="ID провайдера ИИ")
-    model_id: int = Field(..., description="ID модели ИИ")
+    provider: str = Field(..., description="Провайдер ИИ (openai, anthropic)")
+    model: str = Field(..., description="Модель ИИ (gpt-4, claude-3-opus, и т.д.)")
     max_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
     temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
     system_prompt: Optional[str] = Field(None, description="Системный промпт по умолчанию")
@@ -13,8 +13,8 @@ class ModelPreferencesBaseSchema(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "provider_id": 1,
-                "model_id": 3,
+                "provider": "anthropic",
+                "model": "claude-3-opus",
                 "max_tokens": 2000,
                 "temperature": 0.5,
                 "system_prompt": "Ты профессиональный копирайтер, специализирующийся на создании рекламных текстов",
@@ -26,19 +26,14 @@ class ModelPreferencesCreateSchema(ModelPreferencesBaseSchema):
     pass
 
 class ModelPreferencesUpdateSchema(BaseModel):
-    provider_id: Optional[int] = Field(None, description="ID провайдера ИИ")
-    model_id: Optional[int] = Field(None, description="ID модели ИИ")
     max_tokens: Optional[int] = Field(None, description="Максимальное количество токенов в ответе")
     temperature: Optional[float] = Field(None, description="Температура (случайность) ответа")
     system_prompt: Optional[str] = Field(None, description="Системный промпт по умолчанию")
     is_default: Optional[bool] = Field(None, description="Является ли эта модель используемой по умолчанию")
 
-
     class Config:
         json_schema_extra = {
             "example": {
-                "provider_id": 1,
-                "model_id": 3,
                 "max_tokens": 4000,
                 "temperature": 0.3,
                 "system_prompt": "Ты опытный научный консультант с глубокими знаниями в области медицины и биологии",
@@ -70,9 +65,8 @@ class ModelPreferencesSchema(ModelPreferencesBaseSchema):
         }
 
 class AvailableModelSchema(BaseModel):
-    provider_id: int = Field(..., description="ID провайдера ИИ")
-    id: int = Field(..., description="ID модели")
-    code: str = Field(..., description="Код модели")
+    provider: str = Field(..., description="Провайдер ИИ")
+    id: str = Field(..., description="Идентификатор модели")
     name: str = Field(..., description="Название модели")
     description: Optional[str] = Field(None, description="Описание модели")
     max_tokens: int = Field(..., description="Максимальное количество токенов, поддерживаемое моделью")

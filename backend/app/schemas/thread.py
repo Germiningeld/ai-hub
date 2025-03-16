@@ -1,447 +1,77 @@
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
-from pydantic import BaseModel, Field, validator, constr
-from enum import Enum
+from pydantic import BaseModel, Field
 
 
-class RoleEnum(str, Enum):
-    """Перечисление ролей в диалоге"""
-    USER = "user"
-    ASSISTANT = "assistant"
-    SYSTEM = "system"
-
-
-class ProviderEnum(str, Enum):
-    """Перечисление поддерживаемых провайдеров"""
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    GOOGLE = "google"
-    MISTRAL = "mistral"
-
-
-class ThreadCategoryCreateSchema(BaseModel):
-    """Схема для создания новой категории тредов"""
-    name: constr(min_length=1, max_length=100) = Field(..., description="Название категории")
-    description: Optional[str] = Field(None, description="Описание категории")
-    color: Optional[str] = Field(None, description="Цветовая метка категории в HEX формате")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Работа",
-                "description": "Треды, связанные с рабочими задачами",
-                "color": "#4A90E2"
-            }
-        }
-
-
-class ThreadCategoryUpdateSchema(BaseModel):
-    """Схема для обновления категории тредов"""
-    name: Optional[constr(min_length=1, max_length=100)] = Field(None, description="Новое название категории")
-    description: Optional[str] = Field(None, description="Новое описание категории")
-    color: Optional[str] = Field(None, description="Новая цветовая метка категории в HEX формате")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Рабочие задачи",
-                "description": "Треды, связанные с задачами на работе",
-                "color": "#2E86C1"
-            }
-        }
-
-
-class ThreadCategorySchema(BaseModel):
-    """Схема категории треда"""
-    id: int
-    user_id: int
-    name: str
-    description: Optional[str] = None
-    color: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "user_id": 123,
-                "name": "Работа",
-                "description": "Треды, связанные с рабочими задачами",
-                "color": "#4A90E2",
-                "created_at": "2023-08-15T10:00:00",
-                "updated_at": "2023-08-15T10:00:00"
-            }
-        }
-
-
-class MessageSchema(BaseModel):
-    """Схема сообщения"""
-    id: int
-    thread_id: int
-    role: str
-    content: str
-    tokens_total: Optional[int] = 0
-    tokens_input: Optional[int] = 0
-    tokens_output: Optional[int] = 0
-    provider_id: Optional[int] = None
-    provider_code: Optional[str] = None
-    model_id: Optional[int] = None
-    model_code: Optional[str] = None
-    cost: Optional[float] = 0.0
-    is_cached: Optional[bool] = False
-    model_preference_id: Optional[int] = None
-    meta_data: Optional[Dict[str, Any]] = {}
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "thread_id": 1,
-                "role": "user",
-                "content": "Как мне реализовать сервис для работы с OpenAI API?",
-                "tokens_total": 0,
-                "tokens_input": 0,
-                "tokens_output": 0,
-                "provider_id": 1,
-                "provider_code": "openai",
-                "model_id": 1,
-                "model_code": "gpt-3.5-turbo",
-                "cost": 0.0,
-                "is_cached": False,
-                "meta_data": {},
-                "created_at": "2023-08-15T10:05:00"
-            }
-        }
-
-
-class MessageCreateSchema(BaseModel):
-    """Схема для создания нового сообщения"""
-    content: str = Field(..., description="Текст сообщения")
-    role: Optional[str] = Field("user", description="Роль отправителя сообщения")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "content": "Как мне использовать OpenAI API в моем приложении?",
-                "role": "user"
-            }
-        }
-
-
-class ThreadSummarySchema(BaseModel):
-    """Краткая схема треда"""
-    id: int
-    title: str
-    provider_id: int
-    provider_code: Optional[str] = None
-    model_id: int
-    model_code: Optional[str] = None
-    category_id: Optional[int] = None
-    is_pinned: bool
-    is_archived: bool
-    created_at: datetime
-    updated_at: datetime
-    last_message_at: Optional[datetime] = None
-    message_count: int = 0
-    category: Optional[ThreadCategorySchema] = None
-
-    class Config:
-        from_attributes = True
-
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "title": "Вопросы по OpenAI API",
-                "provider_id": 1,
-                "provider_code": "openai",
-                "model_id": 1,
-                "model_code": "gpt-3.5-turbo",
-                "category_id": 1,
-                "is_pinned": False,
-                "is_archived": False,
-                "created_at": "2023-08-15T10:00:00",
-                "updated_at": "2023-08-15T10:05:00",
-                "last_message_at": "2023-08-15T10:05:00",
-                "message_count": 1,
-                "category": {
-                    "id": 1,
-                    "name": "Работа",
-                    "description": "Треды, связанные с рабочими задачами",
-                    "color": "#4A90E2",
-                    "created_at": "2023-08-15T10:00:00",
-                    "updated_at": "2023-08-15T10:00:00"
-                }
-            }
-        }
-
-
-class ThreadSchema(ThreadSummarySchema):
-    """Полная схема треда с сообщениями"""
-    messages: List[MessageSchema] = []
-
-    class Config:
-        from_attributes = True
-
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "title": "Вопросы по OpenAI API",
-                "provider_id": 1,
-                "provider_code": "openai",
-                "model_id": 1,
-                "model_code": "gpt-3.5-turbo",
-                "category_id": 1,
-                "is_pinned": False,
-                "is_archived": False,
-                "created_at": "2023-08-15T10:00:00",
-                "updated_at": "2023-08-15T10:05:00",
-                "last_message_at": "2023-08-15T10:05:00",
-                "message_count": 2,
-                "category": {
-                    "id": 1,
-                    "name": "Работа",
-                    "description": "Треды, связанные с рабочими задачами",
-                    "color": "#4A90E2",
-                    "created_at": "2023-08-15T10:00:00",
-                    "updated_at": "2023-08-15T10:00:00"
-                },
-                "messages": [
-                    {
-                        "id": 1,
-                        "thread_id": 1,
-                        "role": "user",
-                        "content": "Как мне использовать OpenAI API в моем приложении?",
-                        "tokens_total": 0,
-                        "provider_id": 1,
-                        "provider_code": "openai",
-                        "model_id": 1,
-                        "model_code": "gpt-3.5-turbo",
-                        "meta_data": {},
-                        "created_at": "2023-08-15T10:05:00"
-                    },
-                    {
-                        "id": 2,
-                        "thread_id": 1,
-                        "role": "assistant",
-                        "content": "Для использования OpenAI API вам нужно получить API ключ и установить библиотеку openai...",
-                        "tokens_total": 150,
-                        "tokens_input": 50,
-                        "tokens_output": 100,
-                        "provider_id": 1,
-                        "provider_code": "openai",
-                        "model_id": 1,
-                        "model_code": "gpt-3.5-turbo",
-                        "cost": 0.001,
-                        "meta_data": {
-                            "tokens": {
-                                "prompt_tokens": 50,
-                                "completion_tokens": 100,
-                                "total_tokens": 150
-                            }
-                        },
-                        "created_at": "2023-08-15T10:05:05"
-                    }
-                ]
-            }
-        }
-
-
-class ThreadCreateSchema(BaseModel):
-    """Схема для создания нового треда"""
-    title: constr(min_length=1, max_length=255) = Field(..., description="Название треда")
-    model_preferences_id: int = Field(..., description="ID предпочтения модели пользователя")
-    category_id: Optional[int] = Field(None, description="ID категории треда")
-    is_pinned: Optional[bool] = Field(False, description="Флаг закрепления треда")
-    is_archived: Optional[bool] = Field(False, description="Флаг архивации треда")
-    initial_message: Optional[str] = Field(None, description="Начальное сообщение пользователя")
-    system_prompt: Optional[str] = Field(None, description="Системный промпт для модели (если указан, обновит системный промпт в предпочтениях)")
-    max_completion_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
-    temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "title": "Вопросы по OpenAI API",
-                "model_preferences_id": 7,
-                "category_id": 1,
-                "is_pinned": False,
-                "is_archived": False,
-                "initial_message": "Как мне использовать OpenAI API в моем приложении?",
-                "system_prompt": "Ты - опытный инженер, специализирующийся на интеграции AI API."
-            }
-        }
-
-class ThreadUpdateSchema(BaseModel):
-    """Схема для обновления треда"""
-    title: Optional[str] = Field(None, description="Название треда")
-    category_id: Optional[int] = Field(None, description="ID категории треда")
-    is_pinned: Optional[bool] = Field(None, description="Флаг закрепления треда")
-    is_archived: Optional[bool] = Field(None, description="Флаг архивации треда")
-    model_preference_id: Optional[int] = Field(None, description="ID предпочтения модели")
-    max_completion_tokens: Optional[int] = Field(None, description="Максимальное количество токенов в ответе")
-    temperature: Optional[float] = Field(None, description="Температура (случайность) ответа")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "title": "Интеграция с OpenAI API",
-                "category_id": 2,
-                "is_pinned": True,
-                "is_archived": False
-            }
-        }
-
-
-class ThreadListParamsSchema(BaseModel):
-    """Параметры для получения списка тредов"""
-    category_id: Optional[int] = Field(None, description="Фильтр по ID категории")
-    is_archived: Optional[bool] = Field(None, description="Фильтр по статусу архивации")
-    is_pinned: Optional[bool] = Field(None, description="Фильтр по статусу закрепления")
-    search: Optional[str] = Field(None, description="Поисковый запрос")
-    skip: int = Field(0, description="Количество пропускаемых записей для пагинации")
-    limit: int = Field(100, description="Максимальное количество записей для возврата")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "category_id": 1,
-                "is_archived": False,
-                "is_pinned": None,
-                "search": "OpenAI",
-                "skip": 0,
-                "limit": 20
-            }
-        }
-
-
-class BulkThreadActionSchema(BaseModel):
-    """Схема для массовых действий с тредами"""
-    thread_ids: List[int] = Field(..., description="Список ID тредов")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "thread_ids": [1, 2, 3, 4, 5]
-            }
-        }
-
-
-class SendMessageRequestSchema(BaseModel):
-    """Схема для отправки сообщения в тред"""
-    content: str = Field(..., description="Текст сообщения")
-    system_prompt: Optional[str] = Field(None, description="Системный промпт для модели")
-    max_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
-    temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
-
-    @validator('temperature')
-    def validate_temperature(cls, v):
-        if v < 0 or v > 1:
-            raise ValueError('Температура должна быть в диапазоне от 0 до 1')
-        return v
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "content": "Какие есть библиотеки для работы с OpenAI API на Python?",
-                "system_prompt": "Ты - опытный Python разработчик.",
-                "max_tokens": 1000,
-                "temperature": 0.7
-            }
-        }
-
-
+# Основные схемы запросов к AI
 class CompletionRequestSchema(BaseModel):
-    """Схема для запроса на генерацию текста без сохранения в тред"""
+    """Запрос на создание ответа от AI"""
+    provider: str = Field(..., description="Провайдер AI (openai или openai)")
+    model: str = Field(..., description="Модель (gpt-4o, gpt-4o, gpt-4o и т.д.)")
     prompt: str = Field(..., description="Текст запроса")
-    provider_id: int = Field(..., description="ID провайдера AI")
-    model_preference_id: int = Field(..., description="ID предпочтений модели")
-    system_prompt: Optional[str] = Field(None, description="Системный промпт для модели")
     max_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
     temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
-
-    @validator('temperature')
-    def validate_temperature(cls, v):
-        if v < 0 or v > 1:
-            raise ValueError('Температура должна быть в диапазоне от 0 до 1')
-        return v
+    system_prompt: Optional[str] = Field(None, description="Системный промпт (инструкции для модели)")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "prompt": "Напиши простую функцию на Python для подсчета слов в тексте",
-                "provider_id": 1,
-                "model_preference_id": 7,
-                "system_prompt": "Ты - опытный Python разработчик.",
-                "max_tokens": 1000,
-                "temperature": 0.7
+                "provider": "openai",
+                "model": "gpt-4o",
+                "prompt": "Напиши стихотворение о весне в Санкт-Петербурге",
+                "max_tokens": 1500,
+                "temperature": 0.8,
+                "system_prompt": "Ты талантливый поэт, который пишет красивые стихи в классическом стиле"
             }
         }
 
 
 class CompletionResponseSchema(BaseModel):
-    """Схема ответа на запрос генерации текста"""
-    text: str = Field(..., description="Сгенерированный текст")
-    model: Optional[str] = None
-    provider: Optional[str] = None
+    """Ответ от AI"""
+    text: str = Field(..., description="Текст ответа")
+    model: str = Field(..., description="Использованная модель")
+    provider: str = Field(..., description="Провайдер AI")
     tokens: Dict[str, int] = Field(..., description="Информация о токенах")
-    cost: Optional[float] = Field(None, description="Стоимость запроса")
-    from_cache: Optional[bool] = False
+    cost: float = Field(..., description="Стоимость запроса в долларах")
+    from_cache: Optional[bool] = Field(False, description="Флаг, указывающий, получен ли ответ из кэша")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "text": "Вот простая функция для подсчета слов в тексте:\n\n```python\ndef count_words(text):\n    if not text:\n        return 0\n    words = text.split()\n    return len(words)\n```\n\nПример использования:\n\n```python\ntext = 'Привет, мир! Это пример текста.'\nword_count = count_words(text)\nprint(f'Количество слов: {word_count}')\n# Выведет: Количество слов: 5\n```",
-                "model": "gpt-3.5-turbo",
+                "text": "Над Невой туман рассветный,\nТает снег в объятьях солнца.\nВ Петербурге незаметно\nВесна в права свои вступает...",
+                "model": "gpt-4o",
                 "provider": "openai",
                 "tokens": {
-                    "prompt_tokens": 50,
-                    "completion_tokens": 120,
-                    "total_tokens": 170
+                    "prompt_tokens": 42,
+                    "completion_tokens": 220,
+                    "total_tokens": 262
                 },
-                "cost": 0.0015,
+                "cost": 0.00786,
                 "from_cache": False
             }
         }
 
 
 class TokenCountRequestSchema(BaseModel):
-    """Схема запроса для подсчета токенов"""
+    """Запрос на подсчет токенов в тексте"""
+    provider: str = Field(..., description="Провайдер AI (openai или openai)")
+    model: str = Field(..., description="Модель (gpt-4o, gpt-4o, gpt-4o и т.д.)")
     text: str = Field(..., description="Текст для подсчета токенов")
-    provider_id: Optional[int] = Field(None, description="ID провайдера AI (необязательно при указании model_preferences_id)")
-    model_id: Optional[int] = Field(None, description="ID модели AI (необязательно при указании model_preferences_id)")
-    model_preferences_id: Optional[int] = Field(None, description="ID предпочтений модели (альтернатива указанию provider_id и model_id)")
-
-    @validator('model_preferences_id')
-    def validate_model_preferences_id(cls, v, values):
-        """Проверяет, что либо указан model_preferences_id, либо provider_id и model_id"""
-        provider_id = values.get('provider_id')
-        model_id = values.get('model_id')
-        if v is None and (provider_id is None or model_id is None):
-            raise ValueError("Необходимо указать либо model_preferences_id, либо оба поля provider_id и model_id")
-        return v
 
     class Config:
         json_schema_extra = {
             "example": {
-                "text": "Напиши простую функцию на Python для подсчета слов в тексте",
-                "model_preferences_id": 7
-                # Альтернативный вариант:
-                # "provider_id": 1,
-                # "model_id": 1
+                "provider": "openai",
+                "model": "gpt-4o",
+                "text": "Проанализируй текст Пушкина 'Евгений Онегин' и выдели основные темы произведения"
             }
         }
 
 
 class TokenCountResponseSchema(BaseModel):
-    """Схема ответа с информацией о количестве токенов"""
+    """Ответ с количеством токенов"""
     token_count: int = Field(..., description="Количество токенов")
-    estimated: Optional[bool] = False
+    estimated: Optional[bool] = Field(False, description="Флаг, указывающий, является ли подсчет оценочным")
 
     class Config:
         json_schema_extra = {
@@ -452,136 +82,349 @@ class TokenCountResponseSchema(BaseModel):
         }
 
 
-class CategoryErrorResponseSchema(BaseModel):
-    """Схема ответа с информацией об ошибке для категорий"""
-    detail: str = Field(..., description="Сообщение об ошибке")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "detail": "Категория с таким именем уже существует"
-            }
-        }
-
-
 class ErrorResponseSchema(BaseModel):
-    """Схема ответа с информацией об ошибке"""
+    """Ответ с ошибкой"""
     error: bool = Field(True, description="Флаг ошибки")
-    error_message: str = Field(..., description="Сообщение об ошибке")
-    error_type: Optional[str] = Field(None, description="Тип ошибки")
-    error_details: Optional[Any] = Field(None, description="Детальная информация об ошибке")
+    error_message: str = Field(..., description="Текст ошибки")
+    error_type: str = Field(..., description="Тип ошибки (not_found, rate_limit, billing, etc.)")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "error": True,
-                "error_message": "API ключ для провайдера с ID 1 не найден",
-                "error_type": "api_key_not_found",
-                "error_details": None
+                "error_message": "Превышен лимит запросов. Пожалуйста, повторите попытку позже.",
+                "error_type": "rate_limit"
             }
         }
 
 
-class CategoryWithThreadCountSchema(ThreadCategorySchema):
-    """Схема категории треда с количеством тредов"""
-    thread_count: int = Field(0, description="Количество тредов в категории")
+# Схемы для категорий
+class ThreadCategoryBaseSchema(BaseModel):
+    name: str = Field(..., description="Название категории треда")
+    description: Optional[str] = Field(None, description="Описание категории")
+    color: Optional[str] = Field(None, description="Цветовая метка для категории (HEX или название)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Учебные проекты",
+                "description": "Треды, связанные с учебными заданиями и проектами",
+                "color": "#4B0082"
+            }
+        }
+
+
+class ThreadCategoryCreateSchema(ThreadCategoryBaseSchema):
+    pass
+
+
+class ThreadCategoryUpdateSchema(ThreadCategoryBaseSchema):
+    name: Optional[str] = Field(None, description="Название категории треда")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Проекты по машинному обучению",
+                "description": "Треды, посвященные проектам и задачам по ML",
+                "color": "#800080"
+            }
+        }
+
+
+class ThreadCategorySchema(ThreadCategoryBaseSchema):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
-
         json_schema_extra = {
             "example": {
-                "id": 1,
-                "user_id": 123,
-                "name": "Работа",
-                "description": "Треды, связанные с рабочими задачами",
-                "color": "#4A90E2",
-                "created_at": "2023-08-15T10:00:00",
-                "updated_at": "2023-08-15T10:00:00",
-                "thread_count": 5
+                "id": 12,
+                "user_id": 347,
+                "name": "Изучение AI",
+                "description": "Беседы с AI на тему искусственного интеллекта и машинного обучения",
+                "color": "#008080",
+                "created_at": "2024-03-15T12:20:45.123456",
+                "updated_at": "2024-03-16T08:15:22.654321"
             }
         }
 
 
-class CategoryListResponseSchema(BaseModel):
-    """Схема ответа для списка категорий с дополнительной информацией"""
-    categories: List[CategoryWithThreadCountSchema] = Field([], description="Список категорий")
-    total_count: int = Field(0, description="Общее количество категорий")
+# Схемы для сообщений
+class MessageBaseSchema(BaseModel):
+    role: str = Field(..., description="Роль сообщения (user, assistant, system)")
+    content: str = Field(..., description="Содержание сообщения")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "categories": [
-                    {
-                        "id": 1,
-                        "user_id": 123,
-                        "name": "Работа",
-                        "description": "Треды, связанные с рабочими задачами",
-                        "color": "#4A90E2",
-                        "created_at": "2023-08-15T10:00:00",
-                        "updated_at": "2023-08-15T10:00:00",
-                        "thread_count": 5
-                    },
-                    {
-                        "id": 2,
-                        "user_id": 123,
-                        "name": "Обучение",
-                        "description": "Треды по изучению ИИ",
-                        "color": "#E74C3C",
-                        "created_at": "2023-08-18T14:30:00",
-                        "updated_at": "2023-08-18T14:30:00",
-                        "thread_count": 3
-                    }
-                ],
-                "total_count": 2
+                "role": "user",
+                "content": "Какие существуют методы обучения нейронных сетей без учителя?"
             }
         }
 
 
-class StreamResponseItem(BaseModel):
-    """Схема для одного элемента потокового ответа"""
-    text: Optional[str] = None
-    full_response: Optional[str] = None
-    tokens: Optional[Dict[str, int]] = None
-    cost: Optional[float] = None
-    done: Optional[bool] = None
-    error: Optional[bool] = None
-    error_message: Optional[str] = None
-    error_type: Optional[str] = None
-    status: Optional[str] = None
-    user_message_id: Optional[int] = None
-    message_id: Optional[int] = None
+class MessageCreateSchema(MessageBaseSchema):
+    tokens: Optional[int] = Field(None, description="Количество токенов в сообщении")
+    model: Optional[str] = Field(None, description="Модель, используемая для сообщения")
+    provider: Optional[str] = Field(None, description="Провайдер ИИ")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Дополнительные метаданные")
 
     class Config:
         json_schema_extra = {
-            "examples": [
-                {
-                    "status": "connected",
-                    "user_message_id": 123
-                },
-                {
-                    "text": "Для работы с OpenAI API"
-                },
-                {
-                    "text": " в Python вы можете использовать"
-                },
-                {
-                    "text": " официальную библиотеку openai."
-                },
-                {
-                    "full_response": "Для работы с OpenAI API в Python вы можете использовать официальную библиотеку openai.",
-                    "tokens": {
-                        "prompt_tokens": 20,
-                        "completion_tokens": 15,
-                        "total_tokens": 35
-                    },
-                    "cost": 0.0005,
-                    "done": True
-                },
-                {
-                    "error": True,
-                    "error_message": "Соединение с API прервано",
-                    "error_type": "connection_error"
+            "example": {
+                "role": "user",
+                "content": "Объясни, пожалуйста, как работает алгоритм кластеризации K-means простыми словами",
+                "tokens": 16,
+                "model": None,
+                "provider": None,
+                "metadata": {
+                    "browser": "Chrome",
+                    "os": "Windows 11",
+                    "source": "web"
                 }
-            ]
+            }
+        }
+
+
+class MessageSchema(MessageBaseSchema):
+    id: int
+    thread_id: int
+    tokens: Optional[int]
+    model: Optional[str]
+    provider: Optional[str]
+    meta_data: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": 246,
+                "thread_id": 53,
+                "role": "assistant",
+                "content": "Алгоритм K-means — это метод кластеризации, который разделяет данные на K групп. Представьте, что у вас есть разноцветные точки на бумаге, и вы хотите объединить похожие по цвету точки в группы...",
+                "tokens": 256,
+                "model": "gpt-4o",
+                "provider": "openai",
+                "meta_data": {
+                    "response_time_ms": 1520,
+                    "user_feedback": "helpful"
+                },
+                "created_at": "2024-03-15T14:30:12.456789"
+            }
+        }
+
+
+# Схемы для тредов
+class ThreadBaseSchema(BaseModel):
+    title: str = Field(..., description="Название треда")
+    provider: str = Field(..., description="Провайдер ИИ (openai, openai)")
+    model: str = Field(..., description="Модель ИИ (gpt-4o, gpt-4o, и т.д.)")
+    category_id: Optional[int] = Field(None, description="ID категории треда")
+    is_pinned: Optional[bool] = Field(False, description="Закреплен ли тред")
+    is_archived: Optional[bool] = Field(False, description="Архивирован ли тред")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "title": "Разработка рекомендательной системы для интернет-магазина",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "category_id": 5,
+                "is_pinned": True,
+                "is_archived": False
+            }
+        }
+
+
+class ThreadCreateSchema(ThreadBaseSchema):
+    initial_message: Optional[str] = Field(None, description="Первое сообщение пользователя в треде")
+    system_prompt: Optional[str] = Field(None, description="Системный промпт для треда")
+
+    # Параметры генерации ответа
+    max_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
+    temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "title": "Анализ данных о продажах за 2023 год",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "category_id": 3,
+                "is_pinned": False,
+                "is_archived": False,
+                "initial_message": "Я хочу проанализировать данные о продажах моего магазина за прошлый год. Как лучше визуализировать сезонные тренды?",
+                "system_prompt": "Ты опытный аналитик данных, который помогает пользователю анализировать бизнес-показатели и строить информативные визуализации",
+                "max_tokens": 2000,
+                "temperature": 0.8
+            }
+        }
+
+
+class ThreadUpdateSchema(BaseModel):
+    title: Optional[str] = Field(None, description="Название треда")
+    category_id: Optional[int] = Field(None, description="ID категории треда")
+    is_pinned: Optional[bool] = Field(None, description="Закреплен ли тред")
+    is_archived: Optional[bool] = Field(None, description="Архивирован ли тред")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "title": "Оптимизация SQL-запросов для высоконагруженного приложения",
+                "category_id": 7,
+                "is_pinned": True,
+                "is_archived": False
+            }
+        }
+
+
+class ThreadSummarySchema(ThreadBaseSchema):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
+    last_message_at: datetime
+    category: Optional[ThreadCategorySchema] = None
+    message_count: int = Field(..., description="Количество сообщений в треде")
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": 42,
+                "user_id": 156,
+                "title": "Обзор алгоритмов для обработки естественного языка",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "category_id": 9,
+                "is_pinned": False,
+                "is_archived": False,
+                "created_at": "2024-02-10T09:15:32.123456",
+                "updated_at": "2024-03-15T18:45:10.987654",
+                "last_message_at": "2024-03-15T18:45:10.987654",
+                "category": {
+                    "id": 9,
+                    "user_id": 156,
+                    "name": "NLP и обработка текста",
+                    "description": "Обсуждение технологий и алгоритмов обработки естественного языка",
+                    "color": "#008000",
+                    "created_at": "2024-01-20T14:22:36.741852",
+                    "updated_at": "2024-01-20T14:22:36.741852"
+                },
+                "message_count": 28
+            }
+        }
+
+
+class ThreadSchema(ThreadSummarySchema):
+    messages: List[MessageSchema] = Field([], description="Сообщения в треде")
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": 42,
+                "user_id": 156,
+                "title": "Обзор алгоритмов для обработки естественного языка",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "category_id": 9,
+                "is_pinned": False,
+                "is_archived": False,
+                "created_at": "2024-02-10T09:15:32.123456",
+                "updated_at": "2024-03-15T18:45:10.987654",
+                "last_message_at": "2024-03-15T18:45:10.987654",
+                "category": {
+                    "id": 9,
+                    "user_id": 156,
+                    "name": "NLP и обработка текста",
+                    "description": "Обсуждение технологий и алгоритмов обработки естественного языка",
+                    "color": "#008000",
+                    "created_at": "2024-01-20T14:22:36.741852",
+                    "updated_at": "2024-01-20T14:22:36.741852"
+                },
+                "message_count": 2,
+                "messages": [
+                    {
+                        "id": 105,
+                        "thread_id": 42,
+                        "role": "user",
+                        "content": "Какие существуют современные алгоритмы для анализа тональности текста?",
+                        "tokens": 11,
+                        "model": None,
+                        "provider": None,
+                        "meta_data": {},
+                        "created_at": "2024-02-10T09:15:32.123456"
+                    },
+                    {
+                        "id": 106,
+                        "thread_id": 42,
+                        "role": "assistant",
+                        "content": "Современные алгоритмы анализа тональности текста можно разделить на несколько категорий:\n\n1. Основанные на словарях:\n   - VADER (Valence Aware Dictionary and sEntiment Reasoner) - специально разработан для социальных медиа\n   - SentiWordNet - лексический ресурс для анализа мнений\n\n2. Классические методы машинного обучения:\n   - Наивный Байесовский классификатор\n   - SVM (метод опорных векторов)\n   - Логистическая регрессия\n\n3. Глубокое обучение:\n   - RNN и LSTM - учитывают последовательность слов\n   - BERT и его варианты - контекстные модели на основе трансформеров\n   - RoBERTa - оптимизированная версия BERT\n   - XLNet - автореггресивная предварительно обученная модель\n\n4. Ансамблевые методы - комбинируют различные подходы для повышения точности\n\nСамые современные подходы используют предварительно обученные языковые модели трансформеров и тонкую настройку для конкретных задач анализа тональности.",
+                        "tokens": 225,
+                        "model": "gpt-4o",
+                        "provider": "openai",
+                        "meta_data": {
+                            "response_time_ms": 1856,
+                            "prompt_tokens": 15,
+                            "completion_tokens": 225
+                        },
+                        "created_at": "2024-02-10T09:15:40.654321"
+                    }
+                ]
+            }
+        }
+
+
+# Схемы для запросов
+class ThreadListParamsSchema(BaseModel):
+    skip: Optional[int] = Field(0, description="Пропустить указанное количество тредов")
+    limit: Optional[int] = Field(100, description="Максимальное количество возвращаемых тредов")
+    category_id: Optional[int] = Field(None, description="Фильтр по ID категории")
+    is_archived: Optional[bool] = Field(None, description="Фильтр по архивному статусу")
+    is_pinned: Optional[bool] = Field(None, description="Фильтр по закрепленным тредам")
+    search: Optional[str] = Field(None, description="Текст для поиска в названиях тредов")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "skip": 20,
+                "limit": 50,
+                "category_id": 3,
+                "is_archived": False,
+                "is_pinned": True,
+                "search": "нейронные сети"
+            }
+        }
+
+
+class BulkThreadActionSchema(BaseModel):
+    thread_ids: List[int] = Field(..., description="Список ID тредов для действия")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "thread_ids": [12, 45, 67, 89, 123]
+            }
+        }
+
+
+class SendMessageRequestSchema(BaseModel):
+    content: str = Field(..., description="Содержание сообщения")
+    system_prompt: Optional[str] = Field(None, description="Системный промпт (инструкции для модели)")
+    max_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
+    temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "content": "Напиши план исследования по теме 'Влияние социальных сетей на психологическое здоровье подростков'",
+                "system_prompt": "Ты опытный научный руководитель, специализирующийся на психологии и социологии",
+                "max_tokens": 2000,
+                "temperature": 0.5
+            }
         }

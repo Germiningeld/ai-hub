@@ -5,7 +5,7 @@ from typing import List, Dict
 
 from app.core.dependencies import get_current_user
 from app.db.database import get_async_session
-from app.db.models import UserOrm, ModelPreferencesOrm, ApiKeyOrm, ProviderOrm, AIModelOrm
+from app.db.models import UserOrm, ModelPreferencesOrm, ApiKeyOrm
 from app.schemas.model_preferences import (
     ModelPreferencesSchema,
     ModelPreferencesCreateSchema,
@@ -67,14 +67,14 @@ async def get_model_preferences(
     result = await db.execute(
         select(ModelPreferencesOrm)
         .filter(ModelPreferencesOrm.user_id == current_user.id)
-        .order_by(ModelPreferencesOrm.provider_id, ModelPreferencesOrm.model_id)
+        .order_by(ModelPreferencesOrm.provider, ModelPreferencesOrm.model)
     )
     preferences = result.scalars().all()
 
     return preferences
 
 
-@router.get("/preferences/default", response_model=Dict[int, ModelPreferencesSchema])
+@router.get("/preferences/default", response_model=Dict[str, ModelPreferencesSchema])
 async def get_default_preferences(
         db: AsyncSession = Depends(get_async_session),
         current_user: UserOrm = Depends(get_current_user)
@@ -92,7 +92,7 @@ async def get_default_preferences(
 
     result = {}
     for pref in defaults:
-        result[pref.provider_id] = ModelPreferencesSchema.from_orm(pref)
+        result[pref.provider] = ModelPreferencesSchema.from_orm(pref)
 
     return result
 
@@ -106,38 +106,12 @@ async def create_model_preferences(
     """
     Создает новые настройки модели.
     """
-    # Проверяем, существуют ли провайдер и модель
-    provider_result = await db.execute(
-        select(ProviderOrm).filter(ProviderOrm.id == preferences_data.provider_id)
-    )
-    provider = provider_result.scalar_one_or_none()
-
-    if not provider:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Провайдер с ID {preferences_data.provider_id} не найден"
-        )
-
-    model_result = await db.execute(
-        select(AIModelOrm).filter(
-            (AIModelOrm.id == preferences_data.model_id) &
-            (AIModelOrm.provider_id == preferences_data.provider_id)
-        )
-    )
-    model = model_result.scalar_one_or_none()
-
-    if not model:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Модель с ID {preferences_data.model_id} для провайдера с ID {preferences_data.provider_id} не найдена"
-        )
-
     # Проверяем, существуют ли уже настройки для данной модели
     result = await db.execute(
         select(ModelPreferencesOrm).filter(
             (ModelPreferencesOrm.user_id == current_user.id) &
-            (ModelPreferencesOrm.provider_id == preferences_data.provider_id) &
-            (ModelPreferencesOrm.model_id == preferences_data.model_id)
+            (ModelPreferencesOrm.provider == preferences_data.provider) &
+            (ModelPreferencesOrm.model == preferences_data.model)
         )
     )
     existing = result.scalar_one_or_none()
@@ -154,7 +128,7 @@ async def create_model_preferences(
             update(ModelPreferencesOrm)
             .where(
                 (ModelPreferencesOrm.user_id == current_user.id) &
-                (ModelPreferencesOrm.provider_id == preferences_data.provider_id) &
+                (ModelPreferencesOrm.provider == preferences_data.provider) &
                 (ModelPreferencesOrm.is_default == True)
             )
             .values(is_default=False)
@@ -163,8 +137,8 @@ async def create_model_preferences(
     # Создаем новые настройки
     new_preferences = ModelPreferencesOrm(
         user_id=current_user.id,
-        provider_id=preferences_data.provider_id,
-        model_id=preferences_data.model_id,
+        provider=preferences_data.provider,
+        model=preferences_data.model,
         max_tokens=preferences_data.max_tokens,
         temperature=preferences_data.temperature,
         system_prompt=preferences_data.system_prompt,
@@ -202,37 +176,18 @@ async def update_model_preferences(
             detail="Настройки модели не найдены"
         )
 
-    # Проверяем валидность provider_id и model_id, если они изменяются
-    if preferences_data.provider_id is not None:
-        provider_result = await db.execute(
-            select(ProviderOrm).filter(ProviderOrm.id == preferences_data.provider_id)
+    # Если устанавливаем is_default в True, сбрасываем другие настройки по умолчанию для этого провайдера
+    if preferences_data.is_default is True and not preferences.is_default:
+        await db.execute(
+            update(ModelPreferencesOrm)
+            .where(
+                (ModelPreferencesOrm.user_id == current_user.id) &
+                (ModelPreferencesOrm.provider == preferences.provider) &
+                (ModelPreferencesOrm.is_default == True) &
+                (ModelPreferencesOrm.id != preferences_id)
+            )
+            .values(is_default=False)
         )
-        provider = provider_result.scalar_one_or_none()
-
-        if not provider:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Провайдер с ID {preferences_data.provider_id} не найден"
-            )
-
-        preferences.provider_id = preferences_data.provider_id
-
-    if preferences_data.model_id is not None:
-        model_result = await db.execute(
-            select(AIModelOrm).filter(
-                (AIModelOrm.id == preferences_data.model_id) &
-                (AIModelOrm.provider_id == (preferences_data.provider_id or preferences.provider_id))
-            )
-        )
-        model = model_result.scalar_one_or_none()
-
-        if not model:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Модель с ID {preferences_data.model_id} для выбранного провайдера не найдена"
-            )
-
-        preferences.model_id = preferences_data.model_id
 
     # Обновляем поля настроек
     if preferences_data.max_tokens is not None:
@@ -244,19 +199,6 @@ async def update_model_preferences(
     if preferences_data.system_prompt is not None:
         preferences.system_prompt = preferences_data.system_prompt
 
-    # Если устанавливаем is_default в True, сбрасываем другие настройки по умолчанию для этого провайдера
-    if preferences_data.is_default is True and not preferences.is_default:
-        await db.execute(
-            update(ModelPreferencesOrm)
-            .where(
-                (ModelPreferencesOrm.user_id == current_user.id) &
-                (ModelPreferencesOrm.provider_id == preferences.provider_id) &
-                (ModelPreferencesOrm.is_default == True) &
-                (ModelPreferencesOrm.id != preferences_id)
-            )
-            .values(is_default=False)
-        )
-
     if preferences_data.is_default is not None:
         preferences.is_default = preferences_data.is_default
 
@@ -264,6 +206,7 @@ async def update_model_preferences(
     await db.refresh(preferences)
 
     return preferences
+
 
 @router.delete("/preferences/{preferences_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_model_preferences(

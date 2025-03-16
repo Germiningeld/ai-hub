@@ -9,14 +9,11 @@ from sqlalchemy import select
 
 from app.services.base_ai_service import BaseAIService
 from app.core.settings import settings
-from app.db.models import UsageStatisticsOrm, AIModelOrm, ProviderOrm
+from app.db.models import UsageStatisticsOrm, ModelOrm, ProviderOrm
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 from sqlalchemy.exc import SQLAlchemyError
 
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class OpenAIService(BaseAIService):
     """
@@ -38,84 +35,81 @@ class OpenAIService(BaseAIService):
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((openai.APIError, openai.APIConnectionError, openai.RateLimitError))
     )
-    @classmethod
-    async def generate_completion(
-            cls,
-            db: AsyncSession,
-            ai_service: BaseAIService,
-            thread_id: int,
-            content: str,
-            model: str,
-            system_prompt: Optional[str] = None,
-            max_tokens: int = 1000,
-            temperature: float = 0.7,
-            use_context: bool = True
-    ) -> Dict[str, Any]:
+    async def generate_completion(self,
+                                  prompt: str,
+                                  model: str = "gpt-3.5-turbo",
+                                  max_tokens: int = 1000,
+                                  temperature: float = 0.7,
+                                  system_prompt: Optional[str] = None,
+                                  stream=False,
+                                  **kwargs) -> Dict[str, Any]:
         """
-        Генерирует ответ от AI.
+        Генерирует ответ на основе промпта с использованием API OpenAI.
 
         Args:
-            db: Сессия базы данных
-            ai_service: Сервис AI
-            thread_id: ID треда
-            content: Текст запроса
-            model: Название модели
-            system_prompt: Системный промпт (опционально)
+            prompt: Текст запроса
+            model: Имя модели OpenAI
             max_tokens: Максимальное количество токенов в ответе
             temperature: Температура (случайность) ответа
-            use_context: Использовать ли контекст
+            system_prompt: Системный промпт (инструкции для модели)
+            stream: Флаг потоковой генерации
+            **kwargs: Дополнительные параметры для API
 
         Returns:
-            Dict[str, Any]: Результат генерации
+            Словарь с ответом и метаданными
         """
+        if stream:
+            return self.stream_completion(
+                prompt=prompt,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system_prompt=system_prompt,
+                **kwargs
+            )
+
+        # Создаем базовые сообщения
+        messages = [{"role": "user", "content": prompt}]
+        if system_prompt:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+
         try:
-            if use_context:
-                # Получаем контекст сообщений
-                context = await cls.build_message_context(db, thread_id)
+            # Выполняем запрос с полными параметрами
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                **kwargs
+            )
 
-                # Применяем системный промпт, если указан
-                if system_prompt:
-                    context = await cls.apply_system_prompt(context, system_prompt)
+            # Получаем информацию о токенах
+            tokens_data = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
 
-                # Генерируем ответ от ИИ с полным контекстом
-                result = await ai_service.generate_completion_with_context(
-                    context=context,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-            else:
-                # Генерируем ответ от ИИ без контекста
-                result = await ai_service.generate_completion(
-                    db=db,  # Добавляем передачу db
-                    prompt=content,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system_prompt=system_prompt
-                )
+            # Получаем стоимость из ответа API (если она не предоставляется непосредственно в ответе,
+            # то она будет рассчитана в методе, который вызывает generate_completion)
+            # Для некоторых API может потребоваться дополнительный запрос для получения стоимости
 
-            # Если нет ошибки, добавляем стоимость, если она не была рассчитана
-            if not result.get("error") and "cost" not in result:
-                # Рассчитываем стоимость
-                tokens_data = result.get("tokens", {})
-                cost = await ai_service.calculate_cost(
-                    tokens_data.get("prompt_tokens", 0),
-                    tokens_data.get("completion_tokens", 0),
-                    model
-                )
-                result["cost"] = cost
-
-            return result
-
-        except Exception as e:
-            # Возвращаем информацию об ошибке
             return {
+                "text": response.choices[0].message.content,
+                "model": model,
+                "provider": "openai",
+                "tokens": tokens_data,
+                "from_cache": False
+            }
+        except Exception as e:
+            error_info = {
                 "error": True,
                 "error_message": str(e),
-                "error_type": "api_error",
-                "error_details": str(e)
+                "error_type": type(e).__name__,
+                "error_doc": str(getattr(e, "__doc__", "No documentation")),
+                "error_args": str(getattr(e, "args", [])),
             }
+            return error_info
 
     async def generate_completion_with_context(self,
                                                context: List[Dict[str, str]],
@@ -156,7 +150,6 @@ class OpenAIService(BaseAIService):
                 temperature=temperature,
                 **kwargs
             )
-            logger.info(f"AI результат: {response}")
 
             # Получаем информацию о токенах
             tokens_data = {
@@ -281,13 +274,13 @@ class OpenAIService(BaseAIService):
             db: Сессия базы данных
             user_id: ID пользователя
             tokens_data: Данные о токенах
-            model: Код модели или ID модели
+            model: Название модели
             cost: Стоимость запроса (получена из ответа API)
         """
         try:
             today = date.today()
 
-            # Получаем ID провайдера OpenAI
+            # Получаем ID провайдера и модели
             provider_query = select(ProviderOrm).filter(ProviderOrm.code == "openai")
             provider_result = await db.execute(provider_query)
             provider = provider_result.scalars().first()
@@ -296,40 +289,22 @@ class OpenAIService(BaseAIService):
                 print("Провайдер OpenAI не найден в базе данных")
                 return
 
-            # Получаем ID модели по коду модели или используем напрямую ID
-            model_id = model
-            if isinstance(model, str):
-                # Получаем модель по коду
-                model_query = select(AIModelOrm).filter(
-                    AIModelOrm.code == model,
-                    AIModelOrm.provider_id == provider.id
-                )
-                model_result = await db.execute(model_query)
-                model_obj = model_result.scalars().first()
+            model_query = select(ModelOrm).filter(
+                ModelOrm.code == model,
+                ModelOrm.provider_id == provider.id
+            )
+            model_result = await db.execute(model_query)
+            model_obj = model_result.scalars().first()
 
-                if not model_obj:
-                    print(f"Модель {model} не найдена в базе данных")
-                    return
-
-                model_id = model_obj.id
-            else:
-                # Проверяем существование модели по ID
-                model_query = select(AIModelOrm).filter(
-                    AIModelOrm.id == model_id,
-                    AIModelOrm.provider_id == provider.id
-                )
-                model_result = await db.execute(model_query)
-                model_obj = model_result.scalars().first()
-
-                if not model_obj:
-                    print(f"Модель с ID {model_id} не найдена в базе данных")
-                    return
+            if not model_obj:
+                print(f"Модель {model} не найдена в базе данных")
+                return
 
             # Ищем или создаем запись статистики за сегодня
             query = select(UsageStatisticsOrm).filter(
                 UsageStatisticsOrm.user_id == user_id,
                 UsageStatisticsOrm.provider_id == provider.id,
-                UsageStatisticsOrm.model_id == model_id,
+                UsageStatisticsOrm.model_id == model_obj.id,
                 UsageStatisticsOrm.request_date == today
             )
 
@@ -348,7 +323,7 @@ class OpenAIService(BaseAIService):
                 new_stat = UsageStatisticsOrm(
                     user_id=user_id,
                     provider_id=provider.id,
-                    model_id=model_id,
+                    model_id=model_obj.id,
                     request_date=today,
                     request_count=1,
                     tokens_prompt=tokens_data.get("prompt_tokens", 0),
@@ -376,7 +351,7 @@ class OpenAIService(BaseAIService):
 
         Args:
             prompt: Текст запроса
-            model: Модель (код или ID)
+            model: Модель
             max_tokens: Максимальное количество токенов
             temperature: Температура
             system_prompt: Системный промпт
@@ -384,27 +359,18 @@ class OpenAIService(BaseAIService):
         Yields:
             Куски ответа и данные о токенах/стоимости
         """
-        # Если это ID модели, нужно получить код
-        model_code = model
-        if isinstance(model, int):
-            # Это должен быть асинхронный вызов к БД для получения кода модели
-            # Но в данном случае лучше получать код модели до вызова этого метода
-            # Поэтому здесь просто добавим предупреждение и продолжим с исходным значением
-            print(f"Warning: Предоставлен ID модели {model}, но для потокового API нужен код модели")
-            # Если необходимо, можно добавить логику получения кода модели по ID
-
         # Создаем сообщения
         messages = [{"role": "user", "content": prompt}]
         if system_prompt:
             messages.insert(0, {"role": "system", "content": system_prompt})
 
         full_response = ""
-        prompt_tokens = self.count_tokens_for_messages(messages, model_code)
+        prompt_tokens = self.count_tokens_for_messages(messages, model)
 
         try:
             # Запрашиваем потоковый ответ
             stream = await self.client.chat.completions.create(
-                model=model_code,
+                model=model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -421,7 +387,7 @@ class OpenAIService(BaseAIService):
                         yield {"text": content}
 
             # Подсчет токенов по завершении
-            completion_tokens = len(tiktoken.encoding_for_model(model_code).encode(full_response))
+            completion_tokens = len(tiktoken.encoding_for_model(model).encode(full_response))
             total_tokens = prompt_tokens + completion_tokens
 
             tokens_data = {
@@ -429,8 +395,6 @@ class OpenAIService(BaseAIService):
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens
             }
-
-            logger.info(f"AI результат: {full_response}")
 
             # Стоимость должна приходить из другого источника
             yield {"tokens": tokens_data, "from_cache": False}
@@ -449,29 +413,20 @@ class OpenAIService(BaseAIService):
 
         Args:
             context: Контекст диалога
-            model: Модель (код или ID)
+            model: Модель
             max_tokens: Максимальное количество токенов
             temperature: Температура
 
         Yields:
             Куски ответа и данные о токенах/стоимости
         """
-        # Если это ID модели, нужно получить код
-        model_code = model
-        if isinstance(model, int):
-            # Это должен быть асинхронный вызов к БД для получения кода модели
-            # Но в данном случае лучше получать код модели до вызова этого метода
-            # Поэтому здесь просто добавим предупреждение и продолжим с исходным значением
-            print(f"Warning: Предоставлен ID модели {model}, но для потокового API нужен код модели")
-            # Если необходимо, можно добавить логику получения кода модели по ID
-
         full_response = ""
-        prompt_tokens = self.count_tokens_for_messages(context, model_code)
+        prompt_tokens = self.count_tokens_for_messages(context, model)
 
         try:
             # Запрашиваем потоковый ответ
             stream = await self.client.chat.completions.create(
-                model=model_code,
+                model=model,
                 messages=context,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -488,7 +443,7 @@ class OpenAIService(BaseAIService):
                         yield {"text": content}
 
             # Подсчет токенов по завершении
-            completion_tokens = len(tiktoken.encoding_for_model(model_code).encode(full_response))
+            completion_tokens = len(tiktoken.encoding_for_model(model).encode(full_response))
             total_tokens = prompt_tokens + completion_tokens
 
             tokens_data = {
@@ -510,9 +465,8 @@ class OpenAIService(BaseAIService):
         Функция:
         1. Получает актуальный список моделей от API
         2. Добавляет новые модели, которых нет в БД
-        3. Обновляет существующие АКТИВНЫЕ модели
-        4. Отключает активные модели, которые больше не возвращаются API
-        5. НЕ включает уже отключенные модели
+        3. Обновляет существующие модели
+        4. Отключает модели, которые больше не возвращаются API
 
         Args:
             db: Асинхронная сессия базы данных
@@ -526,7 +480,7 @@ class OpenAIService(BaseAIService):
             }
         """
         from sqlalchemy import select
-        from app.db.models import ProviderOrm, AIModelOrm
+        from app.db.models import ProviderOrm, ModelOrm
 
         # Результаты синхронизации
         result = {
@@ -548,7 +502,7 @@ class OpenAIService(BaseAIService):
                 }
 
             # Получаем список всех моделей провайдера из БД
-            models_query = select(AIModelOrm).filter(AIModelOrm.provider_id == provider.id)
+            models_query = select(ModelOrm).filter(ModelOrm.provider_id == provider.id)
             models_result = await db.execute(models_query)
             db_models = {model.code: model for model in models_result.scalars().all()}
 
@@ -571,9 +525,9 @@ class OpenAIService(BaseAIService):
             from sqlalchemy import event
             from app.db.models import model_after_save
 
-            # Временно отключаем обработчики событий
-            event.remove(AIModelOrm, 'after_insert', model_after_save)
-            event.remove(AIModelOrm, 'after_update', model_after_save)
+            # Временно отключаем обработчик событий
+            event.remove(ModelOrm, 'after_insert', model_after_save)
+            event.remove(ModelOrm, 'after_update', model_after_save)
 
             # Обрабатываем каждую модель из ответа API
             for api_model in api_models:
@@ -593,45 +547,36 @@ class OpenAIService(BaseAIService):
                     "code": model_id,
                     "name": model_id,  # В API нет отдельного поля для имени, используем id
                     "description": f"OpenAI модель {model_id}",
+                    "is_active": True,
                     "supports_streaming": True,  # Большинство современных моделей поддерживают стриминг
                     "max_context_length": 4096,  # Значение по умолчанию
                     "input_price": 0.0,  # Значение по умолчанию
                     "output_price": 0.0,  # Значение по умолчанию
                 }
 
-                # Если модель уже существует в БД
+                # Если модель уже существует в БД, обновляем её
                 if model_id in db_models:
                     db_model = db_models[model_id]
 
-                    # Пропускаем обновление если модель уже отключена (is_active=False)
-                    if not db_model.is_active:
-                        continue
-
-                    # Проверяем, нужно ли обновлять активную модель
+                    # Проверяем, нужно ли обновлять модель
                     need_update = False
                     for key, value in model_info.items():
-                        if key != "is_active" and hasattr(db_model, key) and getattr(db_model, key) != value:
+                        if hasattr(db_model, key) and getattr(db_model, key) != value:
                             setattr(db_model, key, value)
                             need_update = True
-
-                    # Убедимся, что модель активна
-                    if not db_model.is_active:
-                        db_model.is_active = True
-                        need_update = True
 
                     if need_update:
                         result["updated_models"].append(model_id)
                 else:
                     # Создаем новую модель
-                    new_model = AIModelOrm(
+                    new_model = ModelOrm(
                         provider_id=provider.id,
-                        is_active=True,
                         **model_info
                     )
                     db.add(new_model)
                     result["new_models"].append(model_id)
 
-            # Отключаем ТОЛЬКО АКТИВНЫЕ модели, которых нет в ответе API
+            # Отключаем модели, которых нет в ответе API
             for db_model_code, db_model in db_models.items():
                 if db_model_code not in active_model_codes and db_model.is_active:
                     db_model.is_active = False
@@ -641,8 +586,8 @@ class OpenAIService(BaseAIService):
             await db.commit()
 
             # Восстанавливаем обработчики событий
-            event.listen(AIModelOrm, 'after_insert', model_after_save)
-            event.listen(AIModelOrm, 'after_update', model_after_save)
+            event.listen(ModelOrm, 'after_insert', model_after_save)
+            event.listen(ModelOrm, 'after_update', model_after_save)
 
             return result
 
@@ -652,8 +597,8 @@ class OpenAIService(BaseAIService):
             try:
                 from sqlalchemy import event
                 from app.db.models import model_after_save
-                event.listen(AIModelOrm, 'after_insert', model_after_save)
-                event.listen(AIModelOrm, 'after_update', model_after_save)
+                event.listen(ModelOrm, 'after_insert', model_after_save)
+                event.listen(ModelOrm, 'after_update', model_after_save)
             except:
                 pass
 

@@ -71,6 +71,7 @@ class ModelPreferencesSchema(ModelPreferencesBaseSchema):
 
 class AvailableModelSchema(BaseModel):
     provider_id: int = Field(..., description="ID провайдера ИИ")
+    provider_code: str = Field(..., description="Код провайдера ИИ (например, 'openai', 'anthropic')")
     id: int = Field(..., description="ID модели")
     code: str = Field(..., description="Код модели")
     name: str = Field(..., description="Название модели")
@@ -82,8 +83,10 @@ class AvailableModelSchema(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "provider": "anthropic",
-                "id": "claude-3-opus",
+                "provider_id": 1,
+                "provider_code": "anthropic",
+                "id": 5,
+                "code": "claude-3-opus",
                 "name": "Claude 3 Opus",
                 "description": "Самая мощная модель Claude, оптимизированная для сложных задач рассуждения и творческой работы",
                 "max_tokens": 200000,

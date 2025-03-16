@@ -14,7 +14,6 @@ class ApiKeyCreateSchema(ApiKeyBaseSchema):
     """Схема для создания API ключа"""
     api_key: str = Field(..., description="Значение API ключа")
 
-
 class ApiKeyUpdateSchema(BaseModel):
     """Схема для обновления API ключа"""
     provider_id: Optional[int] = Field(None, description="ID провайдера API")
@@ -28,6 +27,7 @@ class ApiKeyResponseSchema(ApiKeyBaseSchema):
     id: int
     user_id: int
     api_key: str
+    provider_code: str = Field(None, description="Код провайдера API")
     created_at: datetime
     updated_at: datetime
 

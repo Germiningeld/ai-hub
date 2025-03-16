@@ -17,14 +17,26 @@ async def get_api_keys(
         current_user: UserOrm = Depends(get_current_user)
 ):
     """
-    Получает список API ключей текущего пользователя.
+    Получает список API ключей текущего пользователя с кодами провайдеров.
     """
-    result = await db.execute(
-        select(ApiKeyOrm).where(ApiKeyOrm.user_id == current_user.id)
-    )
-    api_keys = result.scalars().all()
+    # Запрос с соединением (join) таблиц для получения кода провайдера
+    query = select(ApiKeyOrm, ProviderOrm.code.label("provider_code")).join(
+        ProviderOrm, ApiKeyOrm.provider_id == ProviderOrm.id
+    ).where(ApiKeyOrm.user_id == current_user.id)
 
-    # FastAPI автоматически преобразует ORM-объекты в модели Pydantic
+    result = await db.execute(query)
+    api_keys_with_providers = result.all()
+
+    # Создаем список API ключей с добавленным кодом провайдера
+    api_keys = []
+    for row in api_keys_with_providers:
+        api_key = row[0]  # ApiKeyOrm объект
+        provider_code = row[1]  # код провайдера из запроса
+
+        # Создаем временный атрибут для кода провайдера
+        setattr(api_key, "provider_code", provider_code)
+        api_keys.append(api_key)
+
     return api_keys
 
 
@@ -78,6 +90,9 @@ async def create_api_key(
     await db.commit()
     await db.refresh(db_api_key)
 
+    # Добавляем код провайдера к ответу
+    setattr(db_api_key, "provider_code", provider.code)
+
     return db_api_key
 
 
@@ -107,6 +122,9 @@ async def update_api_key(
         )
 
     # Проверяем существование провайдера, если меняется
+    provider = None
+    provider_id = api_key.provider_id or db_api_key.provider_id
+
     if api_key.provider_id is not None:
         provider_result = await db.execute(
             select(ProviderOrm).filter(ProviderOrm.id == api_key.provider_id)
@@ -120,6 +138,12 @@ async def update_api_key(
             )
 
         db_api_key.provider_id = api_key.provider_id
+    else:
+        # Получаем текущего провайдера для кода провайдера
+        provider_result = await db.execute(
+            select(ProviderOrm).filter(ProviderOrm.id == db_api_key.provider_id)
+        )
+        provider = provider_result.scalar_one_or_none()
 
     # Обновляем остальные поля
     if api_key.name is not None:
@@ -133,6 +157,10 @@ async def update_api_key(
 
     await db.commit()
     await db.refresh(db_api_key)
+
+    # Добавляем код провайдера к ответу
+    if provider:
+        setattr(db_api_key, "provider_code", provider.code)
 
     return db_api_key
 

@@ -26,35 +26,80 @@ async def get_available_models(
     """
     Возвращает список доступных моделей из всех настроенных провайдеров.
     """
-    # Получаем список API ключей пользователя
-    result = await db.execute(
-        select(ApiKeyOrm).filter(
-            (ApiKeyOrm.user_id == current_user.id) &
-            (ApiKeyOrm.is_active == True)
+    from sqlalchemy import text
+    import json
+
+    try:
+        # 1. Получаем список активных провайдеров, для которых у пользователя есть ключи
+        providers_query = text("""
+        SELECT DISTINCT p.id, p.code, p.name, p.description
+        FROM providers p
+        JOIN api_keys a ON p.id = a.provider_id
+        WHERE a.user_id = :user_id AND a.is_active = TRUE AND p.is_active = TRUE
+        """)
+        providers_result = await db.execute(providers_query, {"user_id": current_user.id})
+
+        available_models = []
+
+        # 2. Для каждого провайдера получаем его модели
+        for provider_row in providers_result.all():
+            provider_id, provider_code, provider_name, provider_desc = provider_row
+
+            # Используем чистый SQL для получения моделей
+            models_query = text("""
+            SELECT id, code, name, description, max_context_length, input_price, output_price, config
+            FROM ai_models
+            WHERE provider_id = :provider_id AND is_active = TRUE
+            """)
+            models_result = await db.execute(models_query, {"provider_id": provider_id})
+
+            for model_row in models_result.all():
+                model_id, model_code, model_name, model_desc, max_tokens, input_price, output_price, config = model_row
+
+                # Правильно обрабатываем config, который может быть в разных форматах
+                capabilities = []
+                try:
+                    # Если config - это строка JSON, пытаемся её распарсить
+                    if isinstance(config, str):
+                        config_dict = json.loads(config)
+                    elif isinstance(config, dict):
+                        config_dict = config
+                    else:
+                        config_dict = {}
+
+                    # Извлекаем capabilities из config
+                    if "capabilities" in config_dict and isinstance(config_dict["capabilities"], list):
+                        capabilities = config_dict["capabilities"]
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    print(f"Ошибка при обработке config для модели {model_code}: {str(e)}")
+                    # В случае ошибки используем пустой список возможностей
+                    capabilities = []
+
+                available_models.append({
+                    "provider_id": provider_id,
+                    "provider_code": provider_code,  # Код провайдера
+                    "id": model_id,
+                    "code": model_code,
+                    "name": model_name,
+                    "description": model_desc or "",
+                    "max_tokens": max_tokens,
+                    "pricing": {
+                        "input": input_price,
+                        "output": output_price
+                    },
+                    "capabilities": capabilities
+                })
+
+        return {"models": available_models}
+
+    except Exception as e:
+        import traceback
+        print(f"Ошибка при получении доступных моделей: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось получить список доступных моделей: {str(e)}"
         )
-    )
-    api_keys = result.scalars().all()
-
-    providers = [key.provider for key in api_keys]
-    available_models = []
-
-    # Запрашиваем модели для каждого провайдера
-    for provider in providers:
-        try:
-            ai_service = await ai_service_factory.create_service_for_user(
-                db, current_user.id, provider
-            )
-
-            if ai_service:
-                provider_models = await ai_service.get_available_models()
-                available_models.extend(provider_models)
-        except Exception as e:
-            # Логируем ошибку, но продолжаем для других провайдеров
-            print(f"Ошибка при получении моделей от {provider}: {str(e)}")
-            continue
-
-    return {"models": available_models}
-
 
 @router.get("/preferences", response_model=List[ModelPreferencesSchema])
 async def get_model_preferences(

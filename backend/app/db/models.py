@@ -1,7 +1,7 @@
 from enum import Enum
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Float, Date, event, select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship, validates, Session
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 import re
 import importlib
@@ -48,7 +48,7 @@ class ProviderOrm(Base):
     model_preferences = relationship("ModelPreferencesOrm", back_populates="provider_obj", lazy="dynamic")
 
     # Модели, поддерживаемые этим провайдером
-    models = relationship("ModelOrm", back_populates="provider", cascade="all, delete-orphan", lazy="selectin")
+    models = relationship("AIModelOrm", back_populates="provider", cascade="all, delete-orphan", lazy="selectin")
 
     def get_service_class(self):
         """Динамически загружает класс сервиса из строкового имени"""
@@ -80,7 +80,7 @@ class ProviderOrm(Base):
         return code.lower()  # Нормализуем код к нижнему регистру
 
 
-class ModelOrm(Base):
+class AIModelOrm(Base):
     """Модель для моделей AI (GPT-4, Claude-3 и т.д.)"""
     __tablename__ = "ai_models"
 
@@ -105,8 +105,8 @@ class ModelOrm(Base):
     messages = relationship("MessageOrm", back_populates="model_obj", lazy="dynamic")
     model_preferences = relationship("ModelPreferencesOrm", back_populates="model_obj", lazy="dynamic")
 
-    @classmethod
-    async def get_by_code(cls, session, code, provider_id=None):
+    @staticmethod
+    async def get_by_code(session, code, provider_id=None):
         """
         Получает модель по её коду, опционально в рамках конкретного провайдера.
 
@@ -118,10 +118,10 @@ class ModelOrm(Base):
         Returns:
             Объект модели или None, если не найдена
         """
-        query = select(cls).filter(cls.code == code)
+        query = select(AIModelOrm).filter(AIModelOrm.code == code)
 
         if provider_id:
-            query = query.filter(cls.provider_id == provider_id)
+            query = query.filter(AIModelOrm.provider_id == provider_id)
 
         result = await session.execute(query)
         return result.scalars().first()
@@ -250,16 +250,6 @@ class ApiKeyOrm(Base):
         # Если не удалось определить по формату
         return None
 
-    @validates('provider_id')
-    def sync_provider_code(self, key, provider_id):
-        """Синхронизирует provider_code при изменении provider_id"""
-        session = Session.object_session(self)
-        if session:
-            provider = session.get(ProviderOrm, provider_id)
-            if provider:
-                self.provider_code = provider.code
-        return provider_id
-
     @validates('provider_code')
     def validate_provider_code(self, key, provider_code):
         """Валидация кода провайдера"""
@@ -285,30 +275,14 @@ class UsageStatisticsOrm(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Поля для обратной совместимости
+    provider_code = Column(String(50), nullable=True)
+    model_code = Column(String(50), nullable=True)
+
     # Отношения
     user = relationship("UserOrm", back_populates="usage_statistics")
     provider_obj = relationship("ProviderOrm", back_populates="usage_statistics")
-    model_obj = relationship("ModelOrm", back_populates="usage_statistics")
-
-    @validates('provider_id')
-    def sync_provider_code(self, key, provider_id):
-        """Синхронизирует provider_code при изменении provider_id"""
-        session = Session.object_session(self)
-        if session:
-            provider = session.get(ProviderOrm, provider_id)
-            if provider:
-                self.provider_code = provider.code
-        return provider_id
-
-    @validates('model_id')
-    def sync_model_code(self, key, model_id):
-        """Синхронизирует model_code при изменении model_id"""
-        session = Session.object_session(self)
-        if session:
-            model = session.get(ModelOrm, model_id)
-            if model:
-                self.model_code = model.code
-        return model_id
+    model_obj = relationship("AIModelOrm", back_populates="usage_statistics")
 
 
 class ThreadCategoryOrm(Base):
@@ -345,34 +319,22 @@ class ThreadOrm(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_message_at = Column(DateTime(timezone=True), server_default=func.now())
     thread_external_id = Column(String(255), nullable=True)  # ID треда во внешней системе
+    model_preference_id = Column(Integer, ForeignKey("model_preferences.id", ondelete="SET NULL"), nullable=True, index=True)
+    max_tokens = Column(Integer, default=1000)  # Оставляем это название в БД
+    temperature = Column(Float, default=0.7)
+
+
+    # Поля для обратной совместимости
+    provider_code = Column(String(50), nullable=True)
+    model_code = Column(String(50), nullable=True)
 
     # Отношения
     user = relationship("UserOrm", back_populates="threads")
     category = relationship("ThreadCategoryOrm", back_populates="threads")
     messages = relationship("MessageOrm", back_populates="thread", cascade="all, delete-orphan", lazy="dynamic",
-                           order_by="MessageOrm.created_at")
+                            order_by="MessageOrm.created_at")
     provider_obj = relationship("ProviderOrm", back_populates="threads")
-    model_obj = relationship("ModelOrm", back_populates="threads")
-
-    @validates('provider_id')
-    def sync_provider_code(self, key, provider_id):
-        """Синхронизирует provider_code при изменении provider_id"""
-        session = Session.object_session(self)
-        if session:
-            provider = session.get(ProviderOrm, provider_id)
-            if provider:
-                self.provider_code = provider.code
-        return provider_id
-
-    @validates('model_id')
-    def sync_model_code(self, key, model_id):
-        """Синхронизирует model_code при изменении model_id"""
-        session = Session.object_session(self)
-        if session:
-            model = session.get(ModelOrm, model_id)
-            if model:
-                self.model_code = model.code
-        return model_id
+    model_obj = relationship("AIModelOrm", back_populates="threads")
 
 
 class MessageOrm(Base):
@@ -399,7 +361,7 @@ class MessageOrm(Base):
     # Отношения
     thread = relationship("ThreadOrm", back_populates="messages")
     provider_obj = relationship("ProviderOrm", back_populates="messages")
-    model_obj = relationship("ModelOrm", back_populates="messages")
+    model_obj = relationship("AIModelOrm", back_populates="messages")
     model_preference = relationship("ModelPreferencesOrm")
 
     @validates('role')
@@ -408,28 +370,6 @@ class MessageOrm(Base):
         if role not in [e.value for e in RoleEnum]:
             raise ValueError(f"Неподдерживаемая роль: {role}")
         return role
-
-    @validates('provider_id')
-    def sync_provider_code(self, key, provider_id):
-        """Синхронизирует provider_code при изменении provider_id"""
-        if provider_id is not None:
-            session = Session.object_session(self)
-            if session:
-                provider = session.get(ProviderOrm, provider_id)
-                if provider:
-                    self.provider_code = provider.code
-        return provider_id
-
-    @validates('model_id')
-    def sync_model_code(self, key, model_id):
-        """Синхронизирует model_code при изменении model_id"""
-        if model_id is not None:
-            session = Session.object_session(self)
-            if session:
-                model = session.get(ModelOrm, model_id)
-                if model:
-                    self.model_code = model.code
-        return model_id
 
 
 class SavedPromptOrm(Base):
@@ -468,30 +408,14 @@ class ModelPreferencesOrm(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Поля для обратной совместимости
+    provider_code = Column(String(50), nullable=True)
+    model_code = Column(String(50), nullable=True)
+
     # Отношения
     user = relationship("UserOrm", back_populates="model_preferences")
     provider_obj = relationship("ProviderOrm", back_populates="model_preferences")
-    model_obj = relationship("ModelOrm", back_populates="model_preferences")
-
-    @validates('provider_id')
-    def sync_provider_code(self, key, provider_id):
-        """Синхронизирует provider_code при изменении provider_id"""
-        session = Session.object_session(self)
-        if session:
-            provider = session.get(ProviderOrm, provider_id)
-            if provider:
-                self.provider_code = provider.code
-        return provider_id
-
-    @validates('model_id')
-    def sync_model_code(self, key, model_id):
-        """Синхронизирует model_code при изменении model_id"""
-        session = Session.object_session(self)
-        if session:
-            model = session.get(ModelOrm, model_id)
-            if model:
-                self.model_code = model.code
-        return model_id
+    model_obj = relationship("AIModelOrm", back_populates="model_preferences")
 
     @validates('temperature')
     def validate_temperature(self, key, temperature):
@@ -511,9 +435,9 @@ class ModelPreferencesOrm(Base):
         return {"is_valid": False, "errors": ["Модель не найдена"]}
 
 
-# События SQLAlchemy для автоматического обновления полей
-@event.listens_for(ModelOrm, 'after_insert')
-@event.listens_for(ModelOrm, 'after_update')
+# События SQLAlchemy для автоматического обновления полей для прямых SQL запросов
+@event.listens_for(AIModelOrm, 'after_insert')
+@event.listens_for(AIModelOrm, 'after_update')
 def model_after_save(mapper, connection, target):
     """Обновляет записи, ссылающиеся на данную модель"""
     # Этот код выполняется непосредственно на уровне соединения,

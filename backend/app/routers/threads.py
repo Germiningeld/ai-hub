@@ -1,15 +1,13 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func, or_
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 from fastapi.responses import StreamingResponse
-import asyncio
 
 from app.core.dependencies import get_current_user
 from app.db.database import get_async_session
-from app.db.models import UserOrm, ThreadOrm, MessageOrm, ThreadCategoryOrm
+from app.db.models import UserOrm, MessageOrm, ThreadOrm, ProviderOrm, AIModelOrm, ModelPreferencesOrm
 from app.schemas.thread import (
     ThreadCreateSchema, ThreadUpdateSchema, ThreadSchema,
     ThreadSummarySchema, ThreadListParamsSchema, BulkThreadActionSchema,
@@ -17,7 +15,12 @@ from app.schemas.thread import (
     CompletionRequestSchema, CompletionResponseSchema, TokenCountRequestSchema,
     TokenCountResponseSchema, ErrorResponseSchema
 )
-from app.services.ai_service_factory import AIServiceFactory
+from app.services.thread_service import ThreadService, ThreadNotFoundException, AccessDeniedException, \
+    CategoryNotFoundException
+from app.services.message_service import MessageService, MessageServiceException
+from app.services.ai_service_factory import AIServiceFactory, APIKeyNotFoundException
+
+
 
 router = APIRouter()
 
@@ -31,119 +34,68 @@ async def create_thread(
     """
     Создает новый тред и по желанию добавляет первое сообщение.
     """
-    # Проверяем категорию, если указана
-    if thread_data.category_id:
-        result = await db.execute(
-            select(ThreadCategoryOrm).filter(
-                (ThreadCategoryOrm.id == thread_data.category_id) &
-                (ThreadCategoryOrm.user_id == current_user.id)
-            )
+    try:
+        # Используем ThreadService для создания треда
+        thread, messages = await ThreadService.create_thread(
+            db=db,
+            user_id=current_user.id,
+            thread_data=thread_data
         )
-        category = result.scalar_one_or_none()
 
-        if not category:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Категория не найдена"
-            )
+        # Получаем категорию, если она есть
+        category = None
+        if thread.category_id:
+            category = await ThreadService.get_category_by_id(db, thread.category_id)
 
-    # Создаем новый тред
-    new_thread = ThreadOrm(
-        user_id=current_user.id,
-        title=thread_data.title,
-        provider=thread_data.provider,
-        model=thread_data.model,
-        category_id=thread_data.category_id,
-        is_pinned=thread_data.is_pinned,
-        is_archived=thread_data.is_archived
-    )
-
-    db.add(new_thread)
-    await db.commit()
-    await db.refresh(new_thread)
-
-    # Если предоставлено первое сообщение, добавляем его
-    messages = []
-    if thread_data.initial_message:
-        # Добавляем системное сообщение, если указано
-        if thread_data.system_prompt:
-            system_message = MessageOrm(
-                thread_id=new_thread.id,
-                role="system",
-                content=thread_data.system_prompt
-            )
-            db.add(system_message)
-            messages.append(system_message)
-
-        # Добавляем сообщение пользователя
-        user_message = MessageOrm(
-            thread_id=new_thread.id,
-            role="user",
-            content=thread_data.initial_message
-        )
-        db.add(user_message)
-        messages.append(user_message)
-
-        await db.commit()
-        for msg in messages:
-            await db.refresh(msg)
-
-    # Получаем категорию, если она есть
-    category_dict = None
-    if new_thread.category_id:
-        category_result = await db.execute(
-            select(ThreadCategoryOrm).filter(ThreadCategoryOrm.id == new_thread.category_id)
-        )
-        category_orm = category_result.scalar_one_or_none()
-        if category_orm:
-            category_dict = {
-                "id": category_orm.id,
-                "user_id": category_orm.user_id,
-                "name": category_orm.name,
-                "description": category_orm.description,
-                "color": category_orm.color,
-                "created_at": category_orm.created_at,
-                "updated_at": category_orm.updated_at
-            }
-
-    # Создаем словарь с данными треда
-    thread_dict = {
-        "id": new_thread.id,
-        "user_id": new_thread.user_id,
-        "title": new_thread.title,
-        "provider": new_thread.provider,
-        "model": new_thread.model,
-        "category_id": new_thread.category_id,
-        "is_pinned": new_thread.is_pinned,
-        "is_archived": new_thread.is_archived,
-        "created_at": new_thread.created_at,
-        "updated_at": new_thread.updated_at,
-        "last_message_at": new_thread.last_message_at,
-        "message_count": len(messages),
-        "category": category_dict,
-        "messages": []
-    }
-
-    # Добавляем сообщения
-    for msg in messages:
-        # Преобразуем каждое сообщение в словарь
-        msg_dict = {
-            "id": msg.id,
-            "thread_id": msg.thread_id,
-            "role": msg.role,
-            "content": msg.content,
-            "tokens": msg.tokens,
-            "model": msg.model,
-            "provider": msg.provider,
-            "meta_data": msg.meta_data if msg.meta_data else {},
-            "created_at": msg.created_at
+        # Создаем структуру ответа
+        response = {
+            "id": thread.id,
+            "user_id": thread.user_id,
+            "title": thread.title,
+            "provider_id": thread.provider_id,
+            "model_id": thread.model_id,
+            "provider_code": thread.provider_code,
+            "model_code": thread.model_code,
+            "category_id": thread.category_id,
+            "is_pinned": thread.is_pinned,
+            "is_archived": thread.is_archived,
+            "created_at": thread.created_at,
+            "updated_at": thread.updated_at,
+            "last_message_at": thread.last_message_at,
+            "message_count": len(messages),
+            "category": category.__dict__ if category else None,
+            "messages": []
         }
-        thread_dict["messages"].append(msg_dict)
 
-    # Создаем объект схемы из словаря
-    result = ThreadSchema(**thread_dict)
+        # Добавляем сообщения в ответ
+        for msg in messages:
+            response["messages"].append({
+                "id": msg.id,
+                "thread_id": msg.thread_id,
+                "role": msg.role,
+                "content": msg.content,
+                "tokens_total": msg.tokens_total,
+                "model_id": msg.model_id,
+                "provider_id": msg.provider_id,
+                "model_code": msg.model_code,
+                "provider_code": msg.provider_code,
+                "meta_data": msg.meta_data if msg.meta_data else {},
+                "created_at": msg.created_at
+            })
 
-    return result
+        return ThreadSchema(**response)
+
+    except CategoryNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при создании треда: {str(e)}"
+        )
+
 
 @router.post("/stream", status_code=status.HTTP_201_CREATED, response_class=StreamingResponse)
 async def create_thread_stream(
@@ -162,213 +114,231 @@ async def create_thread_stream(
             detail="Для создания треда с потоковой генерацией необходимо начальное сообщение"
         )
 
-    # Проверяем категорию, если указана
-    if thread_data.category_id:
-        result = await db.execute(
-            select(ThreadCategoryOrm).filter(
-                (ThreadCategoryOrm.id == thread_data.category_id) &
-                (ThreadCategoryOrm.user_id == current_user.id)
-            )
-        )
-        category = result.scalar_one_or_none()
-
-        if not category:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Категория не найдена"
-            )
-
-    # Создаем новый тред
-    new_thread = ThreadOrm(
-        user_id=current_user.id,
-        title=thread_data.title,
-        provider=thread_data.provider,
-        model=thread_data.model,
-        category_id=thread_data.category_id,
-        is_pinned=thread_data.is_pinned,
-        is_archived=thread_data.is_archived
-    )
-
-    db.add(new_thread)
-    await db.commit()
-    await db.refresh(new_thread)
-
-    # Добавляем сообщения
-    messages = []
-
-    # Добавляем системное сообщение, если указано
-    if thread_data.system_prompt:
-        system_message = MessageOrm(
-            thread_id=new_thread.id,
-            role="system",
-            content=thread_data.system_prompt
-        )
-        db.add(system_message)
-        messages.append(system_message)
-
-    # Добавляем сообщение пользователя
-    user_message = MessageOrm(
-        thread_id=new_thread.id,
-        role="user",
-        content=thread_data.initial_message
-    )
-    db.add(user_message)
-    messages.append(user_message)
-
-    await db.commit()
-    for msg in messages:
-        await db.refresh(msg)
-
-    # Создаем сервис AI для указанного провайдера
-    ai_service = await AIServiceFactory.create_service_for_user(
-        db, current_user.id, thread_data.provider
-    )
-
-    if not ai_service:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": True,
-                "error_message": f"API ключ для провайдера {thread_data.provider} не найден",
-                "error_type": "api_key_not_found"
-            }
+    try:
+        # Создаем тред с начальным сообщением
+        thread, messages = await ThreadService.create_thread(
+            db=db,
+            user_id=current_user.id,
+            thread_data=thread_data
         )
 
-    # Переменные для сбора полного ответа
-    full_response = ""
-    tokens_info = {}
-    cost = 0
+        # Функция генератор для потоковой передачи
+        async def generate():
+            try:
+                # Отправляем информацию о созданном треде
+                thread_info = {
+                    "thread_id": thread.id,
+                    "title": thread.title,
+                    "provider_id": thread.provider_id,
+                    "model_id": thread.model_id,
+                    "provider_code": thread.provider_code,
+                    "model_code": thread.model_code,
+                    "messages": [
+                        {
+                            "id": msg.id,
+                            "role": msg.role,
+                            "content": msg.content,
+                            "created_at": msg.created_at.isoformat()
+                        } for msg in messages
+                    ]
+                }
+                yield f"data: {json.dumps({'thread': thread_info})}\n\n"
 
-    # Функция генератор для потоковой передачи
-    async def generate():
-        nonlocal full_response, tokens_info, cost
+                # Получаем пользовательское сообщение
+                user_message = next((msg for msg in messages if msg.role == "user"), None)
+                if not user_message:
+                    error_message = "Сообщение пользователя не найдено"
+                    yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+                    return
 
-        try:
-            # Отправляем информацию о созданном треде
-            thread_info = {
-                "thread_id": new_thread.id,
-                "title": new_thread.title,
-                "provider": new_thread.provider,
-                "model": new_thread.model,
-                "messages": [
-                    {
-                        "id": msg.id,
-                        "role": msg.role,
-                        "content": msg.content,
-                        "created_at": msg.created_at.isoformat()
-                    } for msg in messages
-                ]
-            }
-            yield f"data: {json.dumps({'thread': thread_info})}\n\n"
+                # Получаем системное сообщение если есть
+                system_message = next((msg for msg in messages if msg.role == "system"), None)
+                system_prompt = system_message.content if system_message else None
 
-            # Формируем контекст
-            context = []
-            if thread_data.system_prompt:
-                context.append({"role": "system", "content": thread_data.system_prompt})
-            context.append({"role": "user", "content": thread_data.initial_message})
+                # Получаем AI сервис для треда
+                try:
+                    # Используем тот же подход, что и в обычном create_thread
+                    # Получаем информацию о треде
+                    thread_result = await db.execute(
+                        select(ThreadOrm).filter(ThreadOrm.id == thread.id)
+                    )
+                    thread_obj = thread_result.scalar_one_or_none()
 
-            # Определяем параметры для запроса
-            max_tokens = getattr(thread_data, 'max_tokens', 1000)
-            temperature = getattr(thread_data, 'temperature', 0.7)
+                    if not thread_obj:
+                        raise Exception(f"Тред с ID {thread.id} не найден")
 
-            # Генерируем ответ в потоковом режиме
-            if thread_data.provider == "openai":
-                async for chunk in ai_service.stream_completion_with_context(
+                    # Создаем сервис AI для указанного провайдера
+                    try:
+                        ai_service = await AIServiceFactory.get_service_by_user_and_provider(
+                            db, current_user.id, thread_obj.provider_id
+                        )
+                    except APIKeyNotFoundException:
+                        error_message = f"API ключ для провайдера с ID {thread_obj.provider_id} не найден"
+                        yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+
+                        # Сохраняем сообщение об ошибке в БД
+                        await MessageService.save_error_message(
+                            db=db,
+                            thread_id=thread.id,
+                            error_message=error_message,
+                            error_type="api_key_not_found"
+                        )
+                        return
+                    except Exception as e:
+                        error_message = f"Ошибка при создании AI сервиса: {str(e)}"
+                        yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+
+                        # Сохраняем сообщение об ошибке в БД
+                        await MessageService.save_error_message(
+                            db=db,
+                            thread_id=thread.id,
+                            error_message=error_message,
+                            error_type="service_error"
+                        )
+                        return
+
+                except Exception as e:
+                    error_message = f"Ошибка при получении AI сервиса: {str(e)}"
+                    yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+
+                    # Сохраняем сообщение об ошибке в БД
+                    await MessageService.save_error_message(
+                        db=db,
+                        thread_id=thread.id,
+                        error_message=error_message,
+                        error_type="service_error"
+                    )
+                    return
+
+                # Формируем контекст для запроса
+                context = []
+                if system_prompt:
+                    context.append({"role": "system", "content": system_prompt})
+                context.append({"role": "user", "content": user_message.content})
+
+                # Определяем параметры для запроса
+                max_tokens = 1000  # Значение по умолчанию
+                temperature = 0.7  # Значение по умолчанию
+
+                # Генерируем ответ в потоковом режиме
+                full_response = ""
+                tokens_info = {}
+                cost = 0
+
+                # Используем метод generate_completion вместо stream_generation
+                try:
+                    # Генерируем ответ от ИИ с полным контекстом
+                    result = await ai_service.generate_completion_with_context(
                         context=context,
-                        model=thread_data.model,
+                        model=thread_obj.model_code,
                         max_tokens=max_tokens,
                         temperature=temperature
-                ):
-                    # Добавляем кусок к полному ответу
-                    if "text" in chunk:
-                        full_response += chunk["text"]
-                        # Отправляем кусок клиенту
-                        yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
+                    )
 
-                    # Сохраняем информацию о токенах и стоимости, если она есть
-                    if "tokens" in chunk:
-                        tokens_info = chunk["tokens"]
-                    if "cost" in chunk:
-                        cost = chunk["cost"]
-            else:
-                # Для других провайдеров используем обычный стриминг
-                async for chunk in ai_service.stream_completion(
-                        prompt=thread_data.initial_message,
-                        model=thread_data.model,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        system_prompt=thread_data.system_prompt
-                ):
-                    # Аналогичная обработка
-                    if "text" in chunk:
-                        full_response += chunk["text"]
-                        yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
+                    # Проверяем наличие ошибки
+                    if result.get("error", False):
+                        error_message = result.get("error_message", "Неизвестная ошибка при генерации ответа")
+                        yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
 
-                    if "tokens" in chunk:
-                        tokens_info = chunk["tokens"]
-                    if "cost" in chunk:
-                        cost = chunk["cost"]
+                        # Сохраняем сообщение об ошибке в БД
+                        await MessageService.save_error_message(
+                            db=db,
+                            thread_id=thread.id,
+                            error_message=error_message,
+                            error_type=result.get("error_type", "api_error"),
+                            provider_id=thread_obj.provider_id,
+                            model_id=thread_obj.model_id,
+                            error_details=result
+                        )
+                        return
 
-            # После завершения стриминга сохраняем сообщение в БД
-            assistant_message = MessageOrm(
-                thread_id=new_thread.id,
-                role="assistant",
-                content=full_response,
-                tokens=tokens_info.get("total_tokens", 0),
-                model=thread_data.model,
-                provider=thread_data.provider,
-                meta_data={
-                    "tokens": tokens_info,
-                    "cost": cost,
-                    "with_context": True
-                }
-            )
-            db.add(assistant_message)
+                    # Имитируем потоковую передачу одним куском (если настоящий стриминг не работает)
+                    text = result.get("text", "")
+                    if text:
+                        # Отправляем текст клиенту
+                        yield f"data: {json.dumps({'text': text})}\n\n"
+                        full_response = text
 
-            # Обновляем время последнего сообщения в треде
-            new_thread.last_message_at = datetime.now()
-            new_thread.updated_at = datetime.now()
+                    # Получаем информацию о токенах и стоимости
+                    tokens_info = result.get("tokens", {})
+                    cost = result.get("cost", 0)
 
-            await db.commit()
-            await db.refresh(assistant_message)
+                except Exception as e:
+                    error_message = f"Ошибка при генерации ответа: {str(e)}"
+                    yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
 
-            # Обновляем статистику использования в фоновом режиме
-            background_tasks.add_task(
-                ai_service.update_usage_statistics,
-                db=db,
-                user_id=current_user.id,
-                tokens_data=tokens_info,
-                model=thread_data.model,
-                cost=cost
-            )
+                    # Сохраняем сообщение об ошибке в БД
+                    await MessageService.save_error_message(
+                        db=db,
+                        thread_id=thread.id,
+                        error_message=error_message,
+                        error_type="api_error",
+                        provider_id=thread_obj.provider_id,
+                        model_id=thread_obj.model_id,
+                        error_details=str(e)
+                    )
+                    return
 
-            # Отправляем финальное сообщение с ID сохраненного сообщения
-            yield f"data: {json.dumps({'done': True, 'message_id': assistant_message.id})}\n\n"
+                # Сохраняем ответ ассистента в БД, если он не пустой
+                if full_response:
+                    assistant_message = await MessageService.save_ai_response(
+                        db=db,
+                        thread_id=thread.id,
+                        content=full_response,
+                        model_id=thread_obj.model_id,
+                        provider_id=thread_obj.provider_id,
+                        tokens_data=tokens_info,
+                        cost=cost,
+                        meta_data={"with_context": True}
+                    )
 
-        except Exception as e:
-            # Обработка ошибок
-            error_message = f"Ошибка при генерации ответа: {str(e)}"
-            yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+                    # Обновляем статистику использования в фоновом режиме
+                    background_tasks.add_task(
+                        ai_service.update_usage_statistics,
+                        db=db,
+                        user_id=current_user.id,
+                        tokens_data=tokens_info,
+                        model=thread_obj.model_code,
+                        cost=cost
+                    )
 
-            # Сохраняем сообщение об ошибке в БД
-            error_msg = MessageOrm(
-                thread_id=new_thread.id,
-                role="assistant",
-                content=error_message,
-                meta_data={"error": True, "error_type": "api_error", "error_details": str(e)},
-                provider=thread_data.provider,
-                model=thread_data.model
-            )
-            db.add(error_msg)
-            await db.commit()
+                    # Отправляем финальное сообщение с ID сохраненного сообщения
+                    yield f"data: {json.dumps({'done': True, 'message_id': assistant_message.id})}\n\n"
 
-    # Возвращаем стрим-ответ с правильными заголовками
-    headers = {
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Content-Type': 'text/event-stream'
-    }
-    return StreamingResponse(generate(), headers=headers)
+            except Exception as e:
+                # Обработка ошибок
+                error_message = f"Ошибка при генерации ответа: {str(e)}"
+                yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+
+                # Сохраняем сообщение об ошибке в БД
+                await MessageService.save_error_message(
+                    db=db,
+                    thread_id=thread.id,
+                    error_message=error_message,
+                    error_type="api_error",
+                    provider_id=thread.provider_id,
+                    model_id=thread.model_id,
+                    error_details=str(e)
+                )
+
+        # Возвращаем стрим-ответ с правильными заголовками
+        headers = {
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Content-Type': 'text/event-stream'
+        }
+        return StreamingResponse(generate(), headers=headers)
+
+    except CategoryNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при создании треда: {str(e)}"
+        )
 
 
 @router.get("/", response_model=List[ThreadSummarySchema])
@@ -380,81 +350,60 @@ async def get_threads(
     """
     Возвращает список тредов пользователя с пагинацией и фильтрацией.
     """
-    # Базовый запрос
-    query = select(ThreadOrm).filter(ThreadOrm.user_id == current_user.id)
-
-    # Применяем фильтры
-    if params.category_id is not None:
-        query = query.filter(ThreadOrm.category_id == params.category_id)
-
-    if params.is_archived is not None:
-        query = query.filter(ThreadOrm.is_archived == params.is_archived)
-
-    if params.is_pinned is not None:
-        query = query.filter(ThreadOrm.is_pinned == params.is_pinned)
-
-    if params.search:
-        search_term = f"%{params.search}%"
-        query = query.filter(ThreadOrm.title.ilike(search_term))
-
-    # Сортировка: сначала закрепленные, потом по дате последнего сообщения
-    query = query.order_by(ThreadOrm.is_pinned.desc(), ThreadOrm.last_message_at.desc())
-
-    # Пагинация
-    query = query.offset(params.skip).limit(params.limit)
-
-    result = await db.execute(query)
-    threads = result.scalars().all()
-
-    # Подсчет сообщений для каждого треда и создание ответа
-    result = []
-    for thread in threads:
-        # Получаем количество сообщений
-        message_count_result = await db.execute(
-            select(func.count(MessageOrm.id)).filter(MessageOrm.thread_id == thread.id)
+    try:
+        # Получаем треды с использованием ThreadService
+        threads = await ThreadService.get_threads(
+            db=db,
+            user_id=current_user.id,
+            category_id=params.category_id,
+            is_archived=params.is_archived,
+            is_pinned=params.is_pinned,
+            search=params.search,
+            skip=params.skip,
+            limit=params.limit
         )
-        message_count = message_count_result.scalar()
 
-        # Создаем словарь для ответа из ORM-модели
-        thread_dict = {
-            "id": thread.id,
-            "user_id": thread.user_id,
-            "title": thread.title,
-            "provider": thread.provider,
-            "model": thread.model,
-            "category_id": thread.category_id,
-            "is_pinned": thread.is_pinned,
-            "is_archived": thread.is_archived,
-            "created_at": thread.created_at,
-            "updated_at": thread.updated_at,
-            "last_message_at": thread.last_message_at,
-            "message_count": message_count
-        }
+        # Формируем ответ
+        result = []
+        for thread in threads:
+            # Получаем количество сообщений для треда
+            message_count = await ThreadService.get_message_count(db, thread.id)
 
-        # Добавляем категорию, если она есть
-        if thread.category_id:
-            category_result = await db.execute(
-                select(ThreadCategoryOrm).filter(ThreadCategoryOrm.id == thread.category_id)
-            )
-            category = category_result.scalar_one_or_none()
-            if category:
-                thread_dict["category"] = {
-                    "id": category.id,
-                    "user_id": category.user_id,
-                    "name": category.name,
-                    "description": category.description,
-                    "color": category.color,
-                    "created_at": category.created_at,
-                    "updated_at": category.updated_at
-                }
-        else:
-            thread_dict["category"] = None
+            # Получаем категорию, если она есть
+            category = None
+            if thread.category_id:
+                category = await ThreadService.get_category_by_id(db, thread.category_id)
 
-        # Создаем схему из словаря
-        thread_summary = ThreadSummarySchema(**thread_dict)
-        result.append(thread_summary)
+            # Создаем объект для ответа
+            thread_dict = {
+                "id": thread.id,
+                "user_id": thread.user_id,
+                "title": thread.title,
+                "provider_id": thread.provider_id,
+                "model_id": thread.model_id,
+                "provider_code": thread.provider_code,
+                "model_code": thread.model_code,
+                "category_id": thread.category_id,
+                "max_completion_tokens": thread.max_tokens,
+                "temperature": thread.temperature,
+                "is_pinned": thread.is_pinned,
+                "is_archived": thread.is_archived,
+                "created_at": thread.created_at,
+                "updated_at": thread.updated_at,
+                "last_message_at": thread.last_message_at,
+                "message_count": message_count,
+                "category": category.__dict__ if category else None
+            }
 
-    return result
+            result.append(ThreadSummarySchema(**thread_dict))
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при получении списка тредов: {str(e)}"
+        )
 
 
 @router.get("/{thread_id}", response_model=ThreadSchema)
@@ -466,87 +415,75 @@ async def get_thread(
     """
     Возвращает тред с указанным ID и всеми его сообщениями.
     """
-    result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
+    try:
+        # Получаем тред и его сообщения
+        thread, messages = await ThreadService.get_thread_with_messages(
+            db=db,
+            user_id=current_user.id,
+            thread_id=thread_id
         )
-    )
-    thread = result.scalar_one_or_none()
 
-    if not thread:
+        # Получаем категорию, если она есть
+        category = None
+        if thread.category_id:
+            category = await ThreadService.get_category_by_id(db, thread.category_id)
+
+        # Создаем объект для ответа
+        thread_dict = {
+            "id": thread.id,
+            "user_id": thread.user_id,
+            "title": thread.title,
+            "provider_id": thread.provider_id,
+            "model_id": thread.model_id,
+            "provider_code": thread.provider_code,
+            "model_code": thread.model_code,
+            "category_id": thread.category_id,
+            "is_pinned": thread.is_pinned,
+            "is_archived": thread.is_archived,
+            "created_at": thread.created_at,
+            "updated_at": thread.updated_at,
+            "last_message_at": thread.last_message_at,
+            "message_count": len(messages),
+            "category": category.__dict__ if category else None,
+            "messages": []
+        }
+
+        # Добавляем сообщения
+        for msg in messages:
+            msg_dict = {
+                "id": msg.id,
+                "thread_id": msg.thread_id,
+                "role": msg.role,
+                "content": msg.content,
+                "tokens_input": msg.tokens_input,
+                "tokens_output": msg.tokens_output,
+                "tokens_total": msg.tokens_total,
+                "model_id": msg.model_id,
+                "provider_id": msg.provider_id,
+                "model_code": msg.model_code,
+                "provider_code": msg.provider_code,
+                "meta_data": msg.meta_data if msg.meta_data else {},
+                "created_at": msg.created_at
+            }
+            thread_dict["messages"].append(msg_dict)
+
+        return ThreadSchema(**thread_dict)
+
+    except ThreadNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
+            detail=str(e)
         )
-
-    # Получаем все сообщения треда, отсортированные по времени создания
-    messages_result = await db.execute(
-        select(MessageOrm)
-        .filter(MessageOrm.thread_id == thread_id)
-        .order_by(MessageOrm.created_at)
-    )
-    messages = messages_result.scalars().all()
-
-    # Подсчитываем количество сообщений
-    message_count = len(messages)
-
-    # Получаем категорию, если она есть
-    category = None
-    if thread.category_id:
-        category_result = await db.execute(
-            select(ThreadCategoryOrm).filter(ThreadCategoryOrm.id == thread.category_id)
+    except AccessDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
         )
-        category_orm = category_result.scalar_one_or_none()
-        if category_orm:
-            category = {
-                "id": category_orm.id,
-                "user_id": category_orm.user_id,
-                "name": category_orm.name,
-                "description": category_orm.description,
-                "color": category_orm.color,
-                "created_at": category_orm.created_at,
-                "updated_at": category_orm.updated_at
-            }
-
-    # Создаем словарь с данными треда
-    thread_dict = {
-        "id": thread.id,
-        "user_id": thread.user_id,
-        "title": thread.title,
-        "provider": thread.provider,
-        "model": thread.model,
-        "category_id": thread.category_id,
-        "is_pinned": thread.is_pinned,
-        "is_archived": thread.is_archived,
-        "created_at": thread.created_at,
-        "updated_at": thread.updated_at,
-        "last_message_at": thread.last_message_at,
-        "message_count": message_count,
-        "category": category,
-        "messages": []
-    }
-
-    # Добавляем сообщения
-    for msg in messages:
-        # Преобразуем каждое сообщение в словарь
-        msg_dict = {
-            "id": msg.id,
-            "thread_id": msg.thread_id,
-            "role": msg.role,
-            "content": msg.content,
-            "tokens": msg.tokens,
-            "model": msg.model,
-            "provider": msg.provider,
-            "meta_data": msg.meta_data if msg.meta_data else {},
-            "created_at": msg.created_at
-        }
-        thread_dict["messages"].append(msg_dict)
-
-    # Создаем объект схемы из словаря
-    result = ThreadSchema(**thread_dict)
-
-    return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при получении треда: {str(e)}"
+        )
 
 
 @router.put("/{thread_id}", response_model=ThreadSchema)
@@ -559,117 +496,85 @@ async def update_thread(
     """
     Обновляет информацию о треде.
     """
-    result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
+    try:
+        # Обновляем тред
+        thread = await ThreadService.update_thread(
+            db=db,
+            user_id=current_user.id,
+            thread_id=thread_id,
+            thread_data=thread_data
         )
-    )
-    thread = result.scalar_one_or_none()
 
-    if not thread:
+        # Получаем сообщения треда
+        messages = await MessageService.get_messages_for_thread(db, thread_id)
+
+        # Получаем категорию, если она есть
+        category = None
+        if thread.category_id:
+            category = await ThreadService.get_category_by_id(db, thread.category_id)
+
+        # Создаем объект для ответа
+        thread_dict = {
+            "id": thread.id,
+            "user_id": thread.user_id,
+            "title": thread.title,
+            "provider_id": thread.provider_id,
+            "model_id": thread.model_id,
+            "provider_code": thread.provider_code,
+            "model_code": thread.model_code,
+            "category_id": thread.category_id,
+            "is_pinned": thread.is_pinned,
+            "is_archived": thread.is_archived,
+            "created_at": thread.created_at,
+            "updated_at": thread.updated_at,
+            "last_message_at": thread.last_message_at,
+            "message_count": len(messages),
+            "category": category.__dict__ if category else None,
+            "messages": []
+        }
+
+        # Добавляем сообщения
+        for msg in messages:
+            msg_dict = {
+                "id": msg.id,
+                "thread_id": msg.thread_id,
+                "role": msg.role,
+                "content": msg.content,
+                "tokens_input": msg.tokens_input,
+                "tokens_output": msg.tokens_output,
+                "tokens_total": msg.tokens_total,
+                "model_id": msg.model_id,
+                "provider_id": msg.provider_id,
+                "model_code": msg.model_code,
+                "provider_code": msg.provider_code,
+                "meta_data": msg.meta_data if msg.meta_data else {},
+                "created_at": msg.created_at
+            }
+            thread_dict["messages"].append(msg_dict)
+
+        return ThreadSchema(**thread_dict)
+
+    except ThreadNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
+            detail=str(e)
+        )
+    except CategoryNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except AccessDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при обновлении треда: {str(e)}"
         )
 
-    # Проверяем категорию, если указана
-    if thread_data.category_id is not None:
-        if thread_data.category_id > 0:
-            category_result = await db.execute(
-                select(ThreadCategoryOrm).filter(
-                    (ThreadCategoryOrm.id == thread_data.category_id) &
-                    (ThreadCategoryOrm.user_id == current_user.id)
-                )
-            )
-            category = category_result.scalar_one_or_none()
-
-            if not category:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Категория не найдена"
-                )
-        thread.category_id = thread_data.category_id
-
-    # Обновляем поля треда
-    if thread_data.title is not None:
-        thread.title = thread_data.title
-
-    if thread_data.is_pinned is not None:
-        thread.is_pinned = thread_data.is_pinned
-
-    if thread_data.is_archived is not None:
-        thread.is_archived = thread_data.is_archived
-
-    thread.updated_at = datetime.now()
-
-    await db.commit()
-    await db.refresh(thread)
-
-    # Получаем все сообщения треда
-    messages_result = await db.execute(
-        select(MessageOrm)
-        .filter(MessageOrm.thread_id == thread_id)
-        .order_by(MessageOrm.created_at)
-    )
-    messages = messages_result.scalars().all()
-
-    # Получаем категорию, если она есть
-    category = None
-    if thread.category_id:
-        category_result = await db.execute(
-            select(ThreadCategoryOrm).filter(ThreadCategoryOrm.id == thread.category_id)
-        )
-        category_orm = category_result.scalar_one_or_none()
-        if category_orm:
-            category = {
-                "id": category_orm.id,
-                "user_id": category_orm.user_id,
-                "name": category_orm.name,
-                "description": category_orm.description,
-                "color": category_orm.color,
-                "created_at": category_orm.created_at,
-                "updated_at": category_orm.updated_at
-            }
-
-    # Создаем словарь с данными треда
-    thread_dict = {
-        "id": thread.id,
-        "user_id": thread.user_id,
-        "title": thread.title,
-        "provider": thread.provider,
-        "model": thread.model,
-        "category_id": thread.category_id,
-        "is_pinned": thread.is_pinned,
-        "is_archived": thread.is_archived,
-        "created_at": thread.created_at,
-        "updated_at": thread.updated_at,
-        "last_message_at": thread.last_message_at,
-        "message_count": len(messages),
-        "category": category,
-        "messages": []
-    }
-
-    # Добавляем сообщения
-    for msg in messages:
-        # Преобразуем каждое сообщение в словарь
-        msg_dict = {
-            "id": msg.id,
-            "thread_id": msg.thread_id,
-            "role": msg.role,
-            "content": msg.content,
-            "tokens": msg.tokens,
-            "model": msg.model,
-            "provider": msg.provider,
-            "meta_data": msg.meta_data if msg.meta_data else {},
-            "created_at": msg.created_at
-        }
-        thread_dict["messages"].append(msg_dict)
-
-    # Создаем объект схемы из словаря
-    result = ThreadSchema(**thread_dict)
-
-    return result
 
 @router.delete("/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thread(
@@ -680,24 +585,29 @@ async def delete_thread(
     """
     Удаляет тред с указанным ID.
     """
-    result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
+    try:
+        await ThreadService.delete_thread(
+            db=db,
+            user_id=current_user.id,
+            thread_id=thread_id
         )
-    )
-    thread = result.scalar_one_or_none()
+        return None
 
-    if not thread:
+    except ThreadNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
+            detail=str(e)
         )
-
-    await db.delete(thread)
-    await db.commit()
-
-    return None
+    except AccessDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при удалении треда: {str(e)}"
+        )
 
 
 @router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
@@ -709,20 +619,19 @@ async def bulk_delete_threads(
     """
     Массовое удаление тредов.
     """
-    if not data.thread_ids:
+    try:
+        await ThreadService.bulk_delete_threads(
+            db=db,
+            user_id=current_user.id,
+            thread_ids=data.thread_ids
+        )
         return None
 
-    # Удаляем треды, принадлежащие пользователю
-    await db.execute(
-        delete(ThreadOrm).where(
-            (ThreadOrm.id.in_(data.thread_ids)) &
-            (ThreadOrm.user_id == current_user.id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при массовом удалении тредов: {str(e)}"
         )
-    )
-
-    await db.commit()
-
-    return None
 
 
 @router.post("/bulk-archive", response_model=List[ThreadSummarySchema])
@@ -734,76 +643,54 @@ async def bulk_archive_threads(
     """
     Массовое архивирование тредов.
     """
-    if not data.thread_ids:
-        return []
-
-    # Получаем треды пользователя из указанного списка
-    result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id.in_(data.thread_ids)) &
-            (ThreadOrm.user_id == current_user.id)
+    try:
+        # Архивируем треды
+        threads = await ThreadService.bulk_archive_threads(
+            db=db,
+            user_id=current_user.id,
+            thread_ids=data.thread_ids
         )
-    )
-    threads = result.scalars().all()
 
-    # Архивируем треды
-    for thread in threads:
-        thread.is_archived = True
-        thread.updated_at = datetime.now()
+        # Формируем ответ
+        result = []
+        for thread in threads:
+            # Получаем количество сообщений для треда
+            message_count = await ThreadService.get_message_count(db, thread.id)
 
-    await db.commit()
+            # Получаем категорию, если она есть
+            category = None
+            if thread.category_id:
+                category = await ThreadService.get_category_by_id(db, thread.category_id)
 
-    # Обновляем треды в ответе
-    result = []
-    for thread in threads:
-        await db.refresh(thread)
+            # Создаем объект для ответа
+            thread_dict = {
+                "id": thread.id,
+                "user_id": thread.user_id,
+                "title": thread.title,
+                "provider_id": thread.provider_id,
+                "model_id": thread.model_id,
+                "provider_code": thread.provider_code,
+                "model_code": thread.model_code,
+                "category_id": thread.category_id,
+                "is_pinned": thread.is_pinned,
+                "is_archived": thread.is_archived,
+                "created_at": thread.created_at,
+                "updated_at": thread.updated_at,
+                "last_message_at": thread.last_message_at,
+                "message_count": message_count,
+                "category": category.__dict__ if category else None
+            }
 
-        # Подсчет сообщений для треда
-        message_count_result = await db.execute(
-            select(func.count(MessageOrm.id)).filter(MessageOrm.thread_id == thread.id)
+            result.append(ThreadSummarySchema(**thread_dict))
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при массовом архивировании тредов: {str(e)}"
         )
-        message_count = message_count_result.scalar()
 
-        # Получаем категорию, если она есть
-        category = None
-        if thread.category_id:
-            category_result = await db.execute(
-                select(ThreadCategoryOrm).filter(ThreadCategoryOrm.id == thread.category_id)
-            )
-            category_orm = category_result.scalar_one_or_none()
-            if category_orm:
-                category = {
-                    "id": category_orm.id,
-                    "user_id": category_orm.user_id,
-                    "name": category_orm.name,
-                    "description": category_orm.description,
-                    "color": category_orm.color,
-                    "created_at": category_orm.created_at,
-                    "updated_at": category_orm.updated_at
-                }
-
-        # Создаем словарь с данными треда
-        thread_dict = {
-            "id": thread.id,
-            "user_id": thread.user_id,
-            "title": thread.title,
-            "provider": thread.provider,
-            "model": thread.model,
-            "category_id": thread.category_id,
-            "is_pinned": thread.is_pinned,
-            "is_archived": thread.is_archived,
-            "created_at": thread.created_at,
-            "updated_at": thread.updated_at,
-            "last_message_at": thread.last_message_at,
-            "message_count": message_count,
-            "category": category
-        }
-
-        # Создаем объект схемы из словаря
-        thread_summary = ThreadSummarySchema(**thread_dict)
-        result.append(thread_summary)
-
-    return result
 
 @router.post("/{thread_id}/messages", response_model=MessageSchema)
 async def add_message(
@@ -815,41 +702,63 @@ async def add_message(
     """
     Добавляет новое сообщение в тред.
     """
-    result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
-        )
-    )
-    thread = result.scalar_one_or_none()
+    try:
+        # Проверяем доступ к треду
+        await ThreadService.get_thread_by_id(db, current_user.id, thread_id)
 
-    if not thread:
+        # Создаем новое сообщение
+        if message.role == "user":
+            new_message = await MessageService.create_user_message(
+                db=db,
+                thread_id=thread_id,
+                content=message.content
+            )
+        elif message.role == "system":
+            new_message = await MessageService.add_or_update_system_prompt(
+                db=db,
+                thread_id=thread_id,
+                system_prompt=message.content
+            )
+        else:
+            # Для других типов сообщений (например, assistant) используем прямое создание
+            # Это может понадобиться для импорта истории из других чатов
+            await ThreadService.get_thread_by_id(db, current_user.id, thread_id)
+
+            new_message = MessageOrm(
+                thread_id=thread_id,
+                role=message.role,
+                content=message.content,
+                tokens_input=message.tokens_input,
+                tokens_output=message.tokens_output,
+                tokens_total=message.tokens_total,
+                model_id=message.model_id,
+                provider_id=message.provider_id,
+                model_code=message.model_code,
+                provider_code=message.provider_code,
+                cost=message.cost,
+                is_cached=message.is_cached,
+                meta_data=message.metadata or {}
+            )
+
+            db.add(new_message)
+            await db.commit()
+            await db.refresh(new_message)
+
+            # Обновляем время последнего сообщения в треде
+            await ThreadService.update_thread_activity(db, thread_id)
+
+        return MessageSchema.from_orm(new_message)
+
+    except ThreadNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
+            detail=str(e)
         )
-
-    # Создаем новое сообщение
-    new_message = MessageOrm(
-        thread_id=thread_id,
-        role=message.role,
-        content=message.content,
-        tokens=message.tokens,
-        model=message.model,
-        provider=message.provider,
-        meta_data=message.metadata or {}
-    )
-
-    db.add(new_message)
-
-    # Обновляем время последнего сообщения в треде
-    thread.last_message_at = datetime.now()
-    thread.updated_at = datetime.now()
-
-    await db.commit()
-    await db.refresh(new_message)
-
-    return MessageSchema.from_orm(new_message)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при добавлении сообщения: {str(e)}"
+        )
 
 
 @router.post("/{thread_id}/send", response_model=MessageSchema)
@@ -868,230 +777,45 @@ async def send_message(
     для формирования контекста диалога. Если False, будет отправлен только
     последний запрос пользователя.
     """
-    # Проверяем наличие треда
-    thread_result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
-        )
-    )
-    thread = thread_result.scalar_one_or_none()
-
-    if not thread:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
-        )
-
-    print(f"Найден тред: {thread.id}, провайдер: {thread.provider}, модель: {thread.model}")
-
-    # Создаем сервис AI для указанного провайдера
-    ai_service = await AIServiceFactory.create_service_for_user(
-        db, current_user.id, thread.provider
-    )
-
-    if not ai_service:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": True,
-                "error_message": f"API ключ для провайдера {thread.provider} не найден",
-                "error_type": "api_key_not_found"
-            }
-        )
-
-    print(f"Создан сервис AI для провайдера: {thread.provider}")
-
-    # Сохраняем сообщение пользователя
-    user_message = MessageOrm(
-        thread_id=thread_id,
-        role="user",
-        content=message_data.content,
-        provider=thread.provider,
-        model=thread.model
-    )
-    db.add(user_message)
-    await db.commit()
-    await db.refresh(user_message)
-
-    print(f"Сохранено сообщение пользователя с ID: {user_message.id}")
-
-    # Определяем метод генерации в зависимости от параметра use_context
-    result = None
     try:
-        if use_context and thread.provider == "openai":  # Для OpenAI используем контекст
-            # Получаем историю сообщений для контекста
-            messages_result = await db.execute(
-                select(MessageOrm)
-                .filter(MessageOrm.thread_id == thread_id)
-                .order_by(MessageOrm.created_at)
-            )
-            messages = messages_result.scalars().all()
-
-            print(f"Получено {len(messages)} сообщений для контекста")
-
-            # Формируем контекст для запроса к ИИ
-            context = []
-            for msg in messages:
-                if msg.role == "system" and msg.content:
-                    context.append({"role": "system", "content": msg.content})
-                elif msg.role in ["user", "assistant"]:
-                    context.append({"role": msg.role, "content": msg.content})
-
-            # Если указан системный промпт в запросе, используем его
-            if message_data.system_prompt:
-                # Проверяем, есть ли уже системное сообщение
-                has_system = any(msg.get("role") == "system" for msg in context)
-                if has_system:
-                    # Заменяем существующее системное сообщение
-                    for i, msg in enumerate(context):
-                        if msg.get("role") == "system":
-                            context[i] = {"role": "system", "content": message_data.system_prompt}
-                            break
-                else:
-                    # Добавляем новое системное сообщение в начало
-                    context.insert(0, {"role": "system", "content": message_data.system_prompt})
-
-            print(f"Отправляем запрос с контекстом из {len(context)} сообщений")
-
-            # Генерируем ответ от ИИ с полным контекстом
-            try:
-                result = await ai_service.generate_completion_with_context(
-                    context=context,
-                    model=thread.model,
-                    max_tokens=message_data.max_tokens,
-                    temperature=message_data.temperature
-                )
-                print(f"Получен ответ от OpenAI с контекстом")
-            except Exception as e:
-                print(f"Ошибка при вызове generate_completion_with_context: {str(e)}")
-                # Пробуем использовать обычный generate_completion как резерв
-                result = await ai_service.generate_completion(
-                    prompt=message_data.content,
-                    model=thread.model,
-                    max_tokens=message_data.max_tokens,
-                    temperature=message_data.temperature,
-                    system_prompt=message_data.system_prompt
-                )
-                print(f"Получен ответ через резервный метод")
-        else:
-            # Генерируем ответ от ИИ без контекста
-            result = await ai_service.generate_completion(
-                prompt=message_data.content,
-                model=thread.model,
-                max_tokens=message_data.max_tokens,
-                temperature=message_data.temperature,
-                system_prompt=message_data.system_prompt
-            )
-            print(f"Получен ответ от ИИ без контекста")
-
-        print(result)
-
-    except Exception as e:
-        # Подробно логируем ошибку
-        error_message = f"Ошибка при генерации ответа: {str(e)}, тип: {type(e).__name__}"
-        print(error_message)
-
-        # Создаем сообщение об ошибке
-        error_msg = MessageOrm(
-            thread_id=thread_id,
-            role="assistant",
-            content=error_message,
-            meta_data={"error": True, "error_type": "api_error", "error_details": str(e)},
-            provider=thread.provider,
-            model=thread.model
-        )
-        db.add(error_msg)
-        await db.commit()
-
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": True,
-                "error_message": str(e),
-                "error_type": "api_error"
-            }
-        )
-
-    # Проверяем наличие ошибки в результате
-    if result and result.get("error", False):
-        error_msg = f"Ошибка API: {result.get('error_message', 'Неизвестная ошибка')}"
-        print(error_msg)
-
-        # Создаем сообщение об ошибке
-        error_message = MessageOrm(
-            thread_id=thread_id,
-            role="assistant",
-            content=error_msg,
-            meta_data={"error": True, "error_type": result.get("error_type"), "error_details": result},
-            provider=thread.provider,
-            model=thread.model
-        )
-        db.add(error_message)
-        await db.commit()
-        await db.refresh(error_message)
-
-        raise HTTPException(
-            status_code=500,
-            detail=result
-        )
-
-    print(f"Сохраняем ответ ассистента")
-
-    # Сохраняем ответ ассистента
-    assistant_message = MessageOrm(
-        thread_id=thread_id,
-        role="assistant",
-        content=result["text"],
-        tokens=result["tokens"].get("total_tokens", 0),
-        model=thread.model,
-        provider=thread.provider,
-        meta_data={
-            "tokens": result["tokens"],
-            "cost": result["cost"],
-            "with_context": use_context
-        }
-    )
-    db.add(assistant_message)
-
-    # Обновляем время последнего сообщения в треде
-    thread.last_message_at = datetime.now()
-    thread.updated_at = datetime.now()
-
-    try:
-        await db.commit()
-        print(f"Транзакция успешно завершена, сообщение сохранено с ID: {assistant_message.id}")
-        await db.refresh(assistant_message)
-    except Exception as e:
-        error_msg = f"Ошибка при сохранении сообщения в БД: {str(e)}"
-        print(error_msg)
-        await db.rollback()
-
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": True,
-                "error_message": error_msg,
-                "error_type": "database_error"
-            }
-        )
-
-    # Обновляем статистику использования в фоновом режиме
-    try:
-        background_tasks.add_task(
-            ai_service.update_usage_statistics,
+        result = await MessageService.send_message(
             db=db,
             user_id=current_user.id,
-            tokens_data=result["tokens"],
-            model=thread.model,
-            cost=result["cost"]
+            thread_id=thread_id,
+            message_data=message_data,
+            background_tasks=background_tasks,
+            use_context=use_context
         )
-        print("Задача на обновление статистики добавлена")
-    except Exception as e:
-        print(f"Ошибка при добавлении фоновой задачи: {str(e)}")
-        # Не возвращаем ошибку, так как статистика не критична для работы
 
-    return MessageSchema.from_orm(assistant_message)
+        # Проверяем, получили ли мы ошибку или сообщение
+        if isinstance(result, dict) and result.get("error", False):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result
+            )
+
+        return MessageSchema.from_orm(result)
+
+    except ThreadNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except AccessDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+    except MessageServiceException as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при отправке сообщения: {str(e)}"
+        )
 
 
 @router.post(
@@ -1108,50 +832,42 @@ async def generate_completion(
     """
     Генерирует ответ на основе запроса пользователя без сохранения в тред.
     """
-    # Создаем сервис AI для указанного провайдера
-    ai_service = await AIServiceFactory.create_service_for_user(
-        db, current_user.id, request.provider
-    )
+    try:
+        # Преобразуем запрос в словарь для передачи в сервис
+        request_data = {
+            "provider_id": request.provider_id,
+            "model_preference_id": request.model_preference_id,  # Используем model_preference_id
+            "prompt": request.prompt,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "system_prompt": request.system_prompt
+        }
 
-    if not ai_service:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": True,
-                "error_message": f"API ключ для провайдера {request.provider} не найден",
-                "error_type": "api_key_not_found"
-            }
+        # Генерируем ответ через MessageService
+        result = await MessageService.generate_completion_for_api(
+            db=db,
+            user_id=current_user.id,
+            request_data=request_data,
+            background_tasks=background_tasks
         )
 
-    # Генерируем ответ
-    result = await ai_service.generate_completion(
-        prompt=request.prompt,
-        model=request.model,
-        max_tokens=request.max_tokens,
-        temperature=request.temperature,
-        system_prompt=request.system_prompt
-    )
+        # Проверяем наличие ошибки
+        if result.get("error", False):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR if result.get(
+                    "error_type") != "api_key_not_found" else status.HTTP_400_BAD_REQUEST,
+                detail=result
+            )
 
-    print(f"Результат генерации: {result}")
+        return result
 
-    # Проверяем наличие ошибки
-    if result.get("error", False):
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(
-            status_code=500 if result.get("error_type") != "api_key_not_found" else 400,
-            detail=result
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при генерации ответа: {str(e)}"
         )
-
-    # Обновляем статистику использования в фоновом режиме
-    background_tasks.add_task(
-        ai_service.update_usage_statistics,
-        db=db,
-        user_id=current_user.id,
-        tokens_data=result["tokens"],
-        model=request.model,
-        cost=result["cost"]
-    )
-
-    return result
 
 
 @router.post(
@@ -1165,29 +881,56 @@ async def count_tokens(
 ):
     """
     Подсчитывает количество токенов в тексте.
+    Поддерживает запрос через model_preferences_id или через provider_id + model_id
     """
-    # Создаем сервис AI для указанного провайдера
-    ai_service = await AIServiceFactory.create_service_for_user(
-        db, current_user.id, request.provider
-    )
+    try:
+        # Если используется model_preferences_id, получаем provider_id и model_id из предпочтений
+        if request.model_preferences_id:
+            preference_query = select(ModelPreferencesOrm).filter(
+                (ModelPreferencesOrm.id == request.model_preferences_id) &
+                (ModelPreferencesOrm.user_id == current_user.id)
+            )
+            preference_result = await db.execute(preference_query)
+            preference = preference_result.scalars().first()
 
-    if not ai_service:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": True,
-                "error_message": f"API ключ для провайдера {request.provider} не найден",
-                "error_type": "api_key_not_found"
-            }
+            if not preference:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Предпочтение модели с ID {request.model_preferences_id} не найдено или принадлежит другому пользователю"
+                )
+
+            provider_id = preference.provider_id
+            model_id = preference.model_id
+        else:
+            # Используем переданные provider_id и model_id
+            provider_id = request.provider_id
+            model_id = request.model_id
+
+        # Вызываем существующий метод с полученными provider_id и model_id
+        result = await MessageService.count_tokens(
+            db=db,
+            user_id=current_user.id,
+            provider_id=provider_id,
+            model_id=model_id,
+            text=request.text
         )
 
-    # Подсчитываем токены
-    result = await ai_service.calculate_tokens(
-        text=request.text,
-        model=request.model
-    )
+        # Проверяем наличие ошибки
+        if result.get("error", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result
+            )
 
-    return result
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при подсчете токенов: {str(e)}"
+        )
 
 
 @router.post("/{thread_id}/stream", response_class=StreamingResponse)
@@ -1200,228 +943,75 @@ async def stream_message(
         use_context: bool = Query(True, description="Использовать контекст для генерации ответа"),
         timeout: int = Query(120, description="Таймаут генерации в секундах")
 ):
-    """
-    Отправляет сообщение пользователя в тред и получает потоковый ответ от ИИ.
-    """
-    # Проверяем наличие треда
-    thread_result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
-        )
-    )
-    thread = thread_result.scalar_one_or_none()
+    try:
+        # Проверяем доступ к треду
+        await ThreadService.get_thread_by_id(db, current_user.id, thread_id)
 
-    if not thread:
+        # Функция-генератор для потоковой передачи
+        async def generate():
+            try:
+                # Используем MessageService для обработки потокового ответа
+                async for chunk in MessageService.handle_stream_response(
+                        db=db,
+                        user_id=current_user.id,
+                        thread_id=thread_id,
+                        user_message_content=message_data.content,
+                        background_tasks=background_tasks,
+                        system_prompt=message_data.system_prompt,
+                        max_tokens=message_data.max_tokens,
+                        temperature=message_data.temperature,
+                        use_context=use_context,
+                        timeout=timeout,
+                        connection_check_callback=None  # Передаем None вместо функции
+                ):
+                    # Отправляем чанк клиенту
+                    yield f"data: {json.dumps(chunk)}\n\n"
+
+            except Exception as e:
+                # Обработка ошибок
+                error_message = f"Ошибка при генерации потокового ответа: {str(e)}"
+                yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
+
+                # Сохраняем сообщение об ошибке в БД
+                thread_result = await db.execute(
+                    select(ThreadOrm).filter(ThreadOrm.id == thread_id)
+                )
+                thread = thread_result.scalar_one_or_none()
+
+                if thread:
+                    await MessageService.save_error_message(
+                        db=db,
+                        thread_id=thread_id,
+                        error_message=error_message,
+                        error_type="stream_error",
+                        provider_id=thread.provider_id,
+                        model_id=thread.model_id,
+                        error_details=str(e)
+                    )
+
+        # Возвращаем стрим-ответ с правильными заголовками
+        headers = {
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Content-Type': 'text/event-stream'
+        }
+        return StreamingResponse(generate(), headers=headers)
+
+    except ThreadNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
+            detail=str(e)
         )
-
-    # Создаем сервис AI для указанного провайдера
-    ai_service = await AIServiceFactory.create_service_for_user(
-        db, current_user.id, thread.provider
-    )
-
-    if not ai_service:
+    except AccessDeniedException as e:
         raise HTTPException(
-            status_code=400,
-            detail={
-                "error": True,
-                "error_message": f"API ключ для провайдера {thread.provider} не найден",
-                "error_type": "api_key_not_found"
-            }
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
         )
-
-    # Сохраняем сообщение пользователя
-    user_message = MessageOrm(
-        thread_id=thread_id,
-        role="user",
-        content=message_data.content,
-        provider=thread.provider,
-        model=thread.model
-    )
-    db.add(user_message)
-    await db.commit()
-    await db.refresh(user_message)
-
-    # Переменные для сбора полного ответа
-    full_response = ""
-    tokens_info = {}
-    cost = 0
-    connection_alive = True
-
-    # Функция-генератор для потоковой передачи
-    async def generate():
-        nonlocal full_response, tokens_info, cost, connection_alive
-
-        # Проверка жизни соединения
-        check_interval = 5  # секунд
-        last_check = datetime.now()
-
-        try:
-            # Отправляем первое сообщение для подтверждения соединения
-            yield f"data: {json.dumps({'status': 'connected', 'user_message_id': user_message.id})}\n\n"
-
-            # Подготовка контекста, если нужно
-            if use_context and thread.provider == "openai":
-                # Получаем историю сообщений для контекста
-                messages_result = await db.execute(
-                    select(MessageOrm)
-                    .filter(MessageOrm.thread_id == thread_id)
-                    .order_by(MessageOrm.created_at)
-                )
-                messages = messages_result.scalars().all()
-
-                # Формируем контекст для запроса к ИИ
-                context = []
-                for msg in messages:
-                    if msg.role == "system" and msg.content:
-                        context.append({"role": "system", "content": msg.content})
-                    elif msg.role in ["user", "assistant"]:
-                        context.append({"role": msg.role, "content": msg.content})
-
-                # Если указан системный промпт в запросе, используем его
-                if message_data.system_prompt:
-                    has_system = any(msg.get("role") == "system" for msg in context)
-                    if has_system:
-                        for i, msg in enumerate(context):
-                            if msg.get("role") == "system":
-                                context[i] = {"role": "system", "content": message_data.system_prompt}
-                                break
-                    else:
-                        context.insert(0, {"role": "system", "content": message_data.system_prompt})
-
-                # Стрим с контекстом с таймаутом
-                try:
-                    async with asyncio.timeout(timeout):
-                        async for chunk in ai_service.stream_completion_with_context(
-                                context=context,
-                                model=thread.model,
-                                max_tokens=message_data.max_tokens,
-                                temperature=message_data.temperature
-                        ):
-                            # Периодически проверяем живость соединения
-                            now = datetime.now()
-                            if (now - last_check).total_seconds() >= check_interval:
-                                if not connection_alive:
-                                    raise Exception("Client disconnected")
-                                last_check = now
-
-                            # Добавляем кусок к полному ответу
-                            if "text" in chunk:
-                                full_response += chunk["text"]
-                                # Отправляем чанк клиенту
-                                yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
-
-                            # Сохраняем информацию о токенах и стоимости, если она есть
-                            if "tokens" in chunk:
-                                tokens_info = chunk["tokens"]
-                            if "cost" in chunk:
-                                cost = chunk["cost"]
-                except asyncio.TimeoutError:
-                    raise Exception(f"Превышено время ожидания ({timeout} секунд)")
-            else:
-                # Стрим без контекста с таймаутом
-                try:
-                    async with asyncio.timeout(timeout):
-                        async for chunk in ai_service.stream_completion(
-                                prompt=message_data.content,
-                                model=thread.model,
-                                max_tokens=message_data.max_tokens,
-                                temperature=message_data.temperature,
-                                system_prompt=message_data.system_prompt
-                        ):
-                            # Периодическая проверка соединения
-                            now = datetime.now()
-                            if (now - last_check).total_seconds() >= check_interval:
-                                if not connection_alive:
-                                    raise Exception("Client disconnected")
-                                last_check = now
-
-                            # Добавляем кусок к полному ответу
-                            if "text" in chunk:
-                                full_response += chunk["text"]
-                                # Отправляем чанк клиенту
-                                yield f"data: {json.dumps({'text': chunk['text']})}\n\n"
-
-                            # Сохраняем информацию о токенах и стоимости
-                            if "tokens" in chunk:
-                                tokens_info = chunk["tokens"]
-                            if "cost" in chunk:
-                                cost = chunk["cost"]
-                except asyncio.TimeoutError:
-                    raise Exception(f"Превышено время ожидания ({timeout} секунд)")
-
-            # После завершения стриминга сохраняем сообщение в БД
-            assistant_message = MessageOrm(
-                thread_id=thread_id,
-                role="assistant",
-                content=full_response,
-                tokens=tokens_info.get("total_tokens", 0),
-                model=thread.model,
-                provider=thread.provider,
-                meta_data={
-                    "tokens": tokens_info,
-                    "cost": cost,
-                    "with_context": use_context
-                }
-            )
-            db.add(assistant_message)
-
-            # Обновляем время последнего сообщения в треде
-            thread.last_message_at = datetime.now()
-            thread.updated_at = datetime.now()
-
-            await db.commit()
-            await db.refresh(assistant_message)
-
-            # Обновляем статистику использования в фоновом режиме
-            background_tasks.add_task(
-                ai_service.update_usage_statistics,
-                db=db,
-                user_id=current_user.id,
-                tokens_data=tokens_info,
-                model=thread.model,
-                cost=cost
-            )
-
-            # Отправляем финальное сообщение с ID сохраненного сообщения
-            yield f"data: {json.dumps({'done': True, 'message_id': assistant_message.id})}\n\n"
-
-        except Exception as e:
-            # Обработка ошибок
-            error_message = f"Ошибка при генерации ответа: {str(e)}"
-            yield f"data: {json.dumps({'error': True, 'error_message': error_message})}\n\n"
-
-            # Сохраняем сообщение об ошибке в БД
-            error_msg = MessageOrm(
-                thread_id=thread_id,
-                role="assistant",
-                content=error_message,
-                meta_data={"error": True, "error_type": "api_error", "error_details": str(e)},
-                provider=thread.provider,
-                model=thread.model
-            )
-            db.add(error_msg)
-            await db.commit()
-
-    # Возвращаем стрим-ответ с правильными заголовками
-    headers = {
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Content-Type': 'text/event-stream'
-    }
-    response = StreamingResponse(generate(), headers=headers)
-
-    # Добавляем обработчик закрытия соединения
-    @response.background
-    def on_disconnect():
-        # Помечаем соединение как закрытое
-        nonlocal connection_alive
-        connection_alive = False
-
-    return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при инициализации потока: {str(e)}"
+        )
 
 
 @router.post("/{thread_id}/stream/stop", status_code=status.HTTP_200_OK)
@@ -1438,37 +1028,42 @@ async def stop_streaming(
         thread_id: ID треда
         message_id: ID сообщения, если уже сохранено (опционально)
     """
-    # Проверяем доступ к треду
-    result = await db.execute(
-        select(ThreadOrm).filter(
-            (ThreadOrm.id == thread_id) &
-            (ThreadOrm.user_id == current_user.id)
-        )
-    )
-    thread = result.scalar_one_or_none()
+    try:
+        # Проверяем доступ к треду
+        await ThreadService.get_thread_by_id(db, current_user.id, thread_id)
 
-    if not thread:
+        # Если предоставлен ID сообщения, отмечаем его как прерванное
+        if message_id:
+            message_result = await db.execute(
+                select(MessageOrm).filter(
+                    (MessageOrm.id == message_id) &
+                    (MessageOrm.thread_id == thread_id)
+                )
+            )
+            message = message_result.scalar_one_or_none()
+
+            if message:
+                # Добавляем в метаданные информацию о прерывании
+                if not message.meta_data:
+                    message.meta_data = {}
+                message.meta_data["stopped_early"] = True
+
+                await db.commit()
+
+        return {"success": True, "message": "Генерация прервана"}
+
+    except ThreadNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Тред не найден"
+            detail=str(e)
         )
-
-    # Отмечаем в БД, что сообщение было прервано (если ID предоставлен)
-    if message_id:
-        result = await db.execute(
-            select(MessageOrm).filter(
-                (MessageOrm.id == message_id) &
-                (MessageOrm.thread_id == thread_id)
-            )
+    except AccessDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
         )
-        message = result.scalar_one_or_none()
-
-        if message:
-            # Добавляем в метаданные информацию о прерывании
-            if not message.meta_data:
-                message.meta_data = {}
-            message.meta_data["stopped_early"] = True
-
-            await db.commit()
-
-    return {"success": True, "message": "Генерация прервана"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при остановке потока: {str(e)}"
+        )

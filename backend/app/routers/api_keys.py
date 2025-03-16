@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.dependencies import get_current_user
 from app.db.database import get_async_session
-from app.db.models import UserOrm, ApiKeyOrm
+from app.db.models import UserOrm, ApiKeyOrm, ProviderOrm
 from app.schemas.api_key import ApiKeyCreateSchema, ApiKeyResponseSchema, ApiKeyUpdateSchema
 
 router = APIRouter()
@@ -37,11 +37,23 @@ async def create_api_key(
     """
     Создает новый API ключ для текущего пользователя.
     """
+    # Проверяем существование провайдера
+    provider_result = await db.execute(
+        select(ProviderOrm).filter(ProviderOrm.id == api_key.provider_id)
+    )
+    provider = provider_result.scalar_one_or_none()
+
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Провайдер с ID {api_key.provider_id} не найден"
+        )
+
     # Проверяем уникальность ключа
     result = await db.execute(
-        ApiKeyOrm.__table__.select().where(
+        select(ApiKeyOrm).filter(
             (ApiKeyOrm.user_id == current_user.id) &
-            (ApiKeyOrm.provider == api_key.provider) &
+            (ApiKeyOrm.provider_id == api_key.provider_id) &
             (ApiKeyOrm.api_key == api_key.api_key)
         )
     )
@@ -56,7 +68,7 @@ async def create_api_key(
     # Создаем новый ключ
     db_api_key = ApiKeyOrm(
         user_id=current_user.id,
-        provider=api_key.provider,
+        provider_id=api_key.provider_id,
         api_key=api_key.api_key,
         name=api_key.name,
         is_active=api_key.is_active
@@ -81,7 +93,7 @@ async def update_api_key(
     """
     # Находим ключ
     result = await db.execute(
-        select(ApiKeyOrm).where(
+        select(ApiKeyOrm).filter(
             (ApiKeyOrm.id == key_id) &
             (ApiKeyOrm.user_id == current_user.id)
         )
@@ -94,14 +106,28 @@ async def update_api_key(
             detail="API ключ не найден"
         )
 
-    # Обновляем поля
+    # Проверяем существование провайдера, если меняется
+    if api_key.provider_id is not None:
+        provider_result = await db.execute(
+            select(ProviderOrm).filter(ProviderOrm.id == api_key.provider_id)
+        )
+        provider = provider_result.scalar_one_or_none()
+
+        if not provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Провайдер с ID {api_key.provider_id} не найден"
+            )
+
+        db_api_key.provider_id = api_key.provider_id
+
+    # Обновляем остальные поля
     if api_key.name is not None:
         db_api_key.name = api_key.name
 
     if api_key.is_active is not None:
         db_api_key.is_active = api_key.is_active
 
-    # Обновляем сам ключ, только если он предоставлен
     if api_key.api_key:
         db_api_key.api_key = api_key.api_key
 
@@ -109,7 +135,6 @@ async def update_api_key(
     await db.refresh(db_api_key)
 
     return db_api_key
-
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_api_key(

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.services.base_ai_service import BaseAIService
 from app.core.settings import settings
-from app.db.models import UsageStatisticsOrm
+from app.db.models import UsageStatisticsOrm, ProviderOrm, AIModelOrm
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 from sqlalchemy.exc import SQLAlchemyError
@@ -165,57 +165,82 @@ class AnthropicService(BaseAIService):
 
         return total_cost
 
-    async def update_usage_statistics(self,
-                                      db: AsyncSession,
-                                      user_id: int,
-                                      tokens_data: Dict[str, int],
-                                      model: str,
-                                      cost: float) -> None:
-        """
-        Обновляет статистику использования API в базе данных.
 
-        Args:
-            db: Сессия базы данных
-            user_id: ID пользователя
-            tokens_data: Данные о токенах
-            model: Название модели
-            cost: Стоимость запроса
-        """
-        try:
-            today = date.today()
+async def update_usage_statistics(self,
+                                  db: AsyncSession,
+                                  user_id: int,
+                                  tokens_data: Dict[str, int],
+                                  model: str,
+                                  cost: float) -> None:
+    """
+    Обновляет статистику использования API в базе данных.
 
-            # Ищем или создаем запись статистики за сегодня
-            usage_stat = await db.execute(select(UsageStatisticsOrm)).filter(
-                UsageStatisticsOrm.user_id == user_id,
-                UsageStatisticsOrm.provider == "anthropic",
-                UsageStatisticsOrm.model == model,
-                UsageStatisticsOrm.request_date == today
-            ).first()
+    Args:
+        db: Сессия базы данных
+        user_id: ID пользователя
+        tokens_data: Данные о токенах
+        model: Название модели
+        cost: Стоимость запроса
+    """
+    try:
+        today = date.today()
 
-            if usage_stat:
-                # Обновляем существующую запись
-                usage_stat.request_count += 1
-                usage_stat.tokens_prompt += tokens_data.get("prompt_tokens", 0)
-                usage_stat.tokens_completion += tokens_data.get("completion_tokens", 0)
-                usage_stat.total_tokens += tokens_data.get("total_tokens", 0)
-                usage_stat.estimated_cost += cost
-            else:
-                # Создаем новую запись
-                new_stat = UsageStatisticsOrm(
-                    user_id=user_id,
-                    provider="anthropic",
-                    model=model,
-                    request_date=today,
-                    request_count=1,
-                    tokens_prompt=tokens_data.get("prompt_tokens", 0),
-                    tokens_completion=tokens_data.get("completion_tokens", 0),
-                    total_tokens=tokens_data.get("total_tokens", 0),
-                    estimated_cost=cost
-                )
-                db.add(new_stat)
+        # Получаем ID провайдера Anthropic
+        provider_query = select(ProviderOrm).filter(ProviderOrm.code == "anthropic")
+        provider_result = await db.execute(provider_query)
+        provider = provider_result.scalars().first()
 
-            await db.commit()
-        except SQLAlchemyError as e:
-            await db.rollback()
-            # Логирование ошибки
-            print(f"Error updating usage statistics: {str(e)}")
+        if not provider:
+            print("Провайдер Anthropic не найден в базе данных")
+            return
+
+        # Получаем ID модели по коду модели и ID провайдера
+        model_query = select(AIModelOrm).filter(
+            AIModelOrm.code == model,
+            AIModelOrm.provider_id == provider.id
+        )
+        model_result = await db.execute(model_query)
+        model_obj = model_result.scalars().first()
+
+        if not model_obj:
+            print(f"Модель {model} не найдена в базе данных")
+            return
+
+        # Ищем или создаем запись статистики за сегодня
+        query = select(UsageStatisticsOrm).filter(
+            UsageStatisticsOrm.user_id == user_id,
+            UsageStatisticsOrm.provider_id == provider.id,
+            UsageStatisticsOrm.model_id == model_obj.id,
+            UsageStatisticsOrm.request_date == today
+        )
+
+        result = await db.execute(query)
+        usage_stat = result.scalars().first()
+
+        if usage_stat:
+            # Обновляем существующую запись
+            usage_stat.request_count += 1
+            usage_stat.tokens_prompt += tokens_data.get("prompt_tokens", 0)
+            usage_stat.tokens_completion += tokens_data.get("completion_tokens", 0)
+            usage_stat.total_tokens += tokens_data.get("total_tokens", 0)
+            usage_stat.estimated_cost += cost
+        else:
+            # Создаем новую запись
+            new_stat = UsageStatisticsOrm(
+                user_id=user_id,
+                provider_id=provider.id,
+                model_id=model_obj.id,
+                request_date=today,
+                request_count=1,
+                tokens_prompt=tokens_data.get("prompt_tokens", 0),
+                tokens_completion=tokens_data.get("completion_tokens", 0),
+                total_tokens=tokens_data.get("total_tokens", 0),
+                estimated_cost=cost
+            )
+            db.add(new_stat)
+
+        await db.commit()
+    except SQLAlchemyError as e:
+        await db.rollback()
+        # Логирование ошибки
+        print(f"Error updating usage statistics: {str(e)}")

@@ -5,7 +5,7 @@ from datetime import datetime
 
 class ApiKeyBaseSchema(BaseModel):
     """Базовая схема для API ключа"""
-    provider: str = Field(..., description="Провайдер API (openai, anthropic)")
+    provider_id: int = Field(..., description="ID провайдера API")
     name: Optional[str] = Field(None, description="Понятное имя для ключа")
     is_active: bool = Field(True, description="Активен ли ключ")
 
@@ -17,6 +17,7 @@ class ApiKeyCreateSchema(ApiKeyBaseSchema):
 
 class ApiKeyUpdateSchema(BaseModel):
     """Схема для обновления API ключа"""
+    provider_id: Optional[int] = Field(None, description="ID провайдера API")
     name: Optional[str] = Field(None, description="Понятное имя для ключа")
     api_key: Optional[str] = Field(None, description="Новое значение API ключа")
     is_active: Optional[bool] = Field(None, description="Активен ли ключ")
@@ -26,7 +27,7 @@ class ApiKeyResponseSchema(ApiKeyBaseSchema):
     """Схема для ответа с API ключом"""
     id: int
     user_id: int
-    api_key: str = Field(..., description="API ключ (в целях безопасности в ответе показывается только часть)")
+    api_key: str
     created_at: datetime
     updated_at: datetime
 

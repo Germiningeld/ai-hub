@@ -19,8 +19,10 @@ class DailyUsageItemSchema(BaseModel):
 
 class ModelUsageItemSchema(BaseModel):
     """Использование одной модели"""
-    provider: str = Field(..., description="Провайдер AI")
-    model: str = Field(..., description="Название модели")
+    provider_id: int = Field(..., description="ID провайдера AI")
+    provider_code: Optional[str] = Field(None, description="Код провайдера AI (для обратной совместимости)")
+    model_id: int = Field(..., description="ID модели")
+    model_code: Optional[str] = Field(None, description="Код модели (для обратной совместимости)")
     requests: int = Field(..., description="Количество запросов к модели")
     tokens: int = Field(..., description="Общее количество использованных токенов")
     cost: float = Field(..., description="Стоимость запросов к модели")
@@ -28,7 +30,8 @@ class ModelUsageItemSchema(BaseModel):
 
 class ProviderSummaryItemSchema(BaseModel):
     """Сводка по провайдеру"""
-    provider: str = Field(..., description="Провайдер AI")
+    provider_id: int = Field(..., description="ID провайдера AI")
+    provider_code: Optional[str] = Field(None, description="Код провайдера AI (для обратной совместимости)")
     requests: int = Field(..., description="Количество запросов к провайдеру")
     tokens: int = Field(..., description="Общее количество использованных токенов")
     cost: float = Field(..., description="Стоимость запросов к провайдеру")

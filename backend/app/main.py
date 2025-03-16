@@ -10,10 +10,7 @@ from app.core.settings import settings
 from app.db.database import engine, Base, get_async_session
 from app.db.models import UserOrm
 from app.core.security import get_password_hash
-from app.routers import api_keys, auth, users, threads, categories, prompts, model_preferences, statistics, models
-# Создаем все таблицы в БД при запуске приложения
-# В продакшене лучше использовать миграции через Alembic
-# Base.metadata.create_all(bind=engine)
+from app.routers import api_keys, auth, users, threads, categories, prompts, model_preferences, statistics, ai_models
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -52,9 +49,6 @@ async def startup_event():
             print(f"Создан администратор: {settings.DEFAULT_ADMIN_EMAIL}")
 
 
-# Импортируем и регистрируем маршруты
-from app.routers import api_keys, auth, users, threads, categories, prompts, model_preferences, statistics
-
 # Аутентификация и пользователи
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
@@ -63,7 +57,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(api_keys.router, prefix="/api/api-keys", tags=["api-keys"])
 
 # Модели AI и провайдеры
-app.include_router(models.router, prefix="/api/ai-models", tags=["ai-models"])
+app.include_router(ai_models.router, prefix="/api/ai-models", tags=["ai-models"])
 
 # Чаты и треды
 app.include_router(threads.router, prefix="/api/threads", tags=["threads"])
@@ -71,7 +65,7 @@ app.include_router(categories.router, prefix="/api/categories", tags=["categorie
 
 # Промпты и настройки
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
-app.include_router(model_preferences.router, prefix="/api/models", tags=["models"])
+app.include_router(model_preferences.router, prefix="/api/model_preferences", tags=["model_preferences"])
 
 # Статистика
 app.include_router(statistics.router, prefix="/api/statistics", tags=["statistics"])

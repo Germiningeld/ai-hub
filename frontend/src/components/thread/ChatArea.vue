@@ -230,37 +230,7 @@
   }
  };
  
- // Вычисляемое свойство для списка моделей
- const allModelsMap = computed(() => {
-  // Карта всех моделей с группировкой по провайдеру
-  return {
-    'openai': [
-      { id: 'gpt-4o', name: 'GPT-4o', description: 'Последняя мультимодальная модель с улучшенным качеством и высокой скоростью работы' },
-      { id: 'gpt-4', name: 'GPT-4 Turbo', description: 'Мощная модель с обширными знаниями и аналитическими способностями' },
-      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', description: 'Быстрая модель для стандартных задач, хорошее соотношение цены и качества' }
-    ],
-    'anthropic': [
-      { id: 'claude-3-opus', name: 'Claude 3 Opus', description: 'Самая мощная модель Claude с высокой точностью и аналитическими способностями' },
-      { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', description: 'Баланс между производительностью и стоимостью' },
-      { id: 'claude-3-haiku', name: 'Claude 3 Haiku', description: 'Самая быстрая и доступная модель Claude 3' }
-    ]
-  };
- });
 
- // Доступные модели (все модели из всех провайдеров)
- const availableModels = computed(() => {
-   let models = [];
-   
-   Object.keys(allModelsMap.value).forEach(provider => {
-     // Добавляем модели только для провайдеров с активными ключами
-     if (apiKeysStore.hasActiveKeyForProvider(provider)) {
-       models = [...models, ...allModelsMap.value[provider]];
-     }
-   });
-   
-   return models;
- });
- 
  // Функция для обновления списка моделей при изменении провайдера
  const handleProviderChange = () => {
   if (!selectedProvider.value) {

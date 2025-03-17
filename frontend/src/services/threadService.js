@@ -89,12 +89,16 @@ export default {
    * @returns {Promise} - Промис с результатом запроса
    */
   async createThread(threadData) {
+    console.log('Входящие данные для создания треда:', threadData);
     try {
       // Проверяем и преобразуем числовые значения
       const formattedData = {
         title: threadData.title || 'Новая беседа',
-        provider: threadData.provider,
-        model: threadData.model,
+        provider_id: threadData.provider_id,
+        provider_code: threadData.provider_code,
+        model_id: threadData.model_id,
+        model_code: threadData.model_code,
+        model_preferences_id: threadData.model_preferences_id,
         category_id: threadData.category_id || null,
         is_pinned: threadData.is_pinned !== undefined ? threadData.is_pinned : false,
         is_archived: threadData.is_archived !== undefined ? threadData.is_archived : false,
@@ -103,10 +107,14 @@ export default {
         temperature: parseFloat(threadData.temperature || 0.7),
         max_tokens: parseInt(threadData.max_tokens || 2000)
       };
-      
+      console.log('Отформатированные данные для создания треда:', formattedData);
+
       // Убедимся, что все числовые поля имеют правильный тип
       if (isNaN(formattedData.temperature)) formattedData.temperature = 0.7;
       if (isNaN(formattedData.max_tokens)) formattedData.max_tokens = 2000;
+
+
+      console.log('Отформатированные данные после проверкидля создания треда:', formattedData);
       
       const response = await api.post('/threads/', formattedData);
       

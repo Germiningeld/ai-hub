@@ -163,7 +163,7 @@ const showContextMenu = (event, thread) => {
   
   // Создаем пункты меню
   const menuItems = [
-    { text: 'Закрепить', icon: 'bi-pin-angle', action: () => pinThread(thread.id) },
+    // { text: 'Закрепить', icon: 'bi-pin-angle', action: () => pinThread(thread.id) },
     { text: 'Переименовать', icon: 'bi-pencil', action: () => renameThread(thread.id) },
     { text: 'Архивировать', icon: 'bi-archive', action: () => archiveThread(thread.id) },
     { text: 'Удалить', icon: 'bi-trash', action: () => showDeleteConfirmation(thread) }

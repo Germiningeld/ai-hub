@@ -51,19 +51,19 @@
         </div>
       </div>
 
-      <!-- Текст сообщения с форматированием markdown (в реальности понадобится markdown-парсер) -->
+      <!-- Текст сообщения с форматированием -->
       <div class="message-text" v-html="formattedContent"></div>
 
-      <!-- Метаданные для сообщений ассистента -->
-      <div v-if="message.role === 'assistant' && (messageTokens || message.cost)" class="message-meta mt-2 small text-muted">
-        <span v-if="messageTokens">{{ messageTokens }} токенов</span>
-        <span v-if="messageTokens && message.cost"> · </span>
-        <span v-if="message.cost">{{ formatCost(message.cost) }}</span>
+      <!-- Метаданные для сообщений ассистента (только токены, убираем цену) -->
+      <div 
+        v-if="message.role === 'assistant' && messageTokens" 
+        class="message-meta mt-2 small text-muted"
+      >
+        <span>{{ messageTokens }} токенов</span>
       </div>
     </div>
   </div>
 </template>
-
 <script setup>
 import { computed } from 'vue';
 
@@ -71,73 +71,94 @@ import { computed } from 'vue';
 const props = defineProps({
   message: {
     type: Object,
-    required: true
+    required: true,
+    default: () => ({
+      id: 'default',
+      role: 'system',
+      content: '',
+      created_at: new Date().toISOString()
+    })
   },
   model: {
-    type: String,
-    default: 'gpt-4o'
+    type: [String, Number], // Поддерживаем как строку, так и число
+    default: ''
   }
 });
 
 // Определение иконки аватара в зависимости от роли
 const avatarIcon = computed(() => {
+  const role = props.message?.role || 'system';
+  const model = String(props.model || ''); // Преобразуем в строку
+  
   const icons = {
     'user': 'bi-person-circle',
-    'assistant': props.model.includes('gpt') ? 'bi-stars' : 'bi-robot',
+    'assistant': typeof model === 'string' && model.includes('gpt') ? 'bi-stars' : 'bi-robot',
     'system': 'bi-gear'
   };
-  return icons[props.message.role] || 'bi-chat';
+  
+  return icons[role] || 'bi-chat';
 });
 
 // Определение отображаемого имени роли
 const roleName = computed(() => {
+  const role = props.message?.role || 'system';
+  
   const names = {
     'user': 'Вы',
     'assistant': 'Ассистент',
     'system': 'Система'
   };
-  return names[props.message.role] || 'Неизвестно';
+  
+  return names[role] || 'Неизвестно';
 });
 
-// Форматированное содержимое (в реальном приложении здесь будет парсинг Markdown)
+// Форматированное содержимое (обработка текста для отображения)
 const formattedContent = computed(() => {
-  // Заменяем переносы строк на <br> для простого форматирования
-  // В реальном приложении здесь будет полноценный Markdown-парсинг
-  return props.message.content.replace(/\n/g, '<br>');
+  const content = props.message?.content || '';
+  
+  // Базовая обработка переносов строк
+  return content.replace(/\n/g, '<br>');
 });
 
 // Получение токенов из разных полей модели
 const messageTokens = computed(() => {
+  const msg = props.message || {};
+  
   // Пробуем получить токены из разных полей модели
-  if (props.message.tokens_total) {
-    return props.message.tokens_total;
-  } else if (props.message.tokens) {
-    return props.message.tokens;
-  } else if (props.message.tokens_input || props.message.tokens_output) {
-    return (props.message.tokens_input || 0) + (props.message.tokens_output || 0);
+  if (msg.tokens_total) {
+    return msg.tokens_total;
+  } else if (msg.tokens) {
+    return msg.tokens;
+  } else if (msg.tokens_input || msg.tokens_output) {
+    return (msg.tokens_input || 0) + (msg.tokens_output || 0);
   }
   return null;
 });
 
 // Форматирование времени
 const formatTime = (dateString) => {
-  const date = new Date(dateString);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
-
-// Форматирование стоимости
-const formatCost = (cost) => {
-  return `$${cost.toFixed(4)}`;
+  if (!dateString) return '';
+  
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    console.error('Ошибка при форматировании времени:', e);
+    return '';
+  }
 };
 
 // Копирование текста сообщения в буфер обмена
 const copyToClipboard = () => {
-  navigator.clipboard.writeText(props.message.content)
+  const content = props.message?.content || '';
+  
+  navigator.clipboard.writeText(content)
     .then(() => {
       alert('Текст скопирован в буфер обмена');
     })
     .catch(err => {
       console.error('Ошибка при копировании текста:', err);
+      alert('Не удалось скопировать текст: ' + err.message);
     });
 };
 

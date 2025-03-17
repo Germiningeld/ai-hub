@@ -20,8 +20,6 @@ from app.services.thread_service import ThreadService, ThreadNotFoundException, 
 from app.services.message_service import MessageService, MessageServiceException
 from app.services.ai_service_factory import AIServiceFactory, APIKeyNotFoundException
 
-
-
 router = APIRouter()
 
 
@@ -217,8 +215,8 @@ async def create_thread_stream(
                 context.append({"role": "user", "content": user_message.content})
 
                 # Определяем параметры для запроса
-                max_tokens = 1000  # Значение по умолчанию
-                temperature = 0.7  # Значение по умолчанию
+                max_tokens = thread_obj.max_tokens  # Используем max_tokens вместо max_completion_tokens
+                temperature = thread_obj.temperature  # Значение по умолчанию
 
                 # Генерируем ответ в потоковом режиме
                 full_response = ""
@@ -384,7 +382,7 @@ async def get_threads(
                 "provider_code": thread.provider_code,
                 "model_code": thread.model_code,
                 "category_id": thread.category_id,
-                "max_completion_tokens": thread.max_tokens,
+                "max_tokens": thread.max_tokens,
                 "temperature": thread.temperature,
                 "is_pinned": thread.is_pinned,
                 "is_archived": thread.is_archived,
@@ -444,6 +442,8 @@ async def get_thread(
             "updated_at": thread.updated_at,
             "last_message_at": thread.last_message_at,
             "message_count": len(messages),
+            "max_tokens": thread.max_tokens,  # Добавлено поле max_tokens
+            "temperature": thread.temperature,  # Добавлено поле temperature
             "category": category.__dict__ if category else None,
             "messages": []
         }

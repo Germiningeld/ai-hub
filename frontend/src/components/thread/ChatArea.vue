@@ -91,14 +91,11 @@
         </div>
       </div>
       
-      <!-- Аналитика треда -->
+      <!-- Аналитика треда (убрали данные о цене) -->
       <div v-if="threadCreated" class="chat-analytics mt-3 p-3 rounded bg-light">
         <div class="row g-2 small">
           <div class="col-auto">
             <i class="bi bi-hash"></i> {{ messageCount }} сообщений
-          </div>
-          <div class="col-auto">
-            <i class="bi bi-coin"></i> {{ formatCost(totalCost) }}
           </div>
           <div class="col-auto">
             <i class="bi bi-chat-square-text"></i> {{ totalTokens }} токенов
@@ -169,7 +166,8 @@
     </div>
   </div>
  </template>
- 
+
+
  <script setup>
  import { ref, onMounted, onUpdated, watch, nextTick, onBeforeUnmount, computed } from 'vue';
  import { useRouter } from 'vue-router';
@@ -415,35 +413,76 @@
  };
  
  // Применение настроек
- const applySettings = async () => {
-  // Проверяем наличие API ключа для выбранного провайдера
-  if (selectedProvider.value && !apiKeysStore.hasActiveKeyForProvider(selectedProvider.value)) {
-    alert('Для выбранного провайдера нет активного API ключа. Добавьте ключ в настройках.');
-    return;
-  }
-  
-  // Обновляем настройки треда
+const applySettings = async () => {
   try {
-    // Здесь будет логика обновления настроек треда через API
-    // (предполагаем, что она будет добавлена позже)
+    // Получаем информацию о выбранной модели
+    const selectedModelData = availableModels.value.find(
+      model => model.code === selectedModel.value
+    );
+    
+    if (!selectedModelData) {
+      console.error('Выбранная модель не найдена в списке доступных моделей');
+      throw new Error('Не удалось определить модель для применения настроек');
+    }
+    
+    // Подготавливаем данные для обновления
+    const settingsData = {
+      provider_id: selectedModelData.provider_id,
+      provider_code: selectedModelData.provider_code,
+      model_id: selectedModelData.model_id,
+      model_code: selectedModelData.code,
+      model_preference_id: selectedModelData.id,
+      temperature: parseFloat(temperature.value),
+      max_tokens: parseInt(maxTokens.value),
+      system_prompt: systemPrompt.value
+    };
+    
+    console.log('Применение настроек:', settingsData);
+    
+    // Если у нас активный тред, обновляем его настройки
+    if (activeChatId.value) {
+      await threadService.updateThread(activeChatId.value, settingsData);
+      console.log('Настройки треда успешно обновлены');
+      
+      // Обновляем системный промпт в сообщениях, если треда существует
+      if (!isNewThread.value) {
+        await updateSystemPrompt();
+      }
+    }
+    
+    // Обновляем предпочтения модели пользователя
+    if (selectedModelData.id) {
+      const preferenceData = {
+        temperature: parseFloat(temperature.value),
+        max_tokens: parseInt(maxTokens.value),
+        system_prompt: systemPrompt.value
+      };
+      
+      await modelService.updateModelPreference(selectedModelData.id, preferenceData);
+      console.log('Предпочтения модели успешно обновлены');
+    }
     
     // Закрываем панель настроек
     showSettings.value = false;
     
-    // Уведомляем пользователя
+    // Уведомляем пользователя об успешном обновлении
     alert('Настройки успешно применены');
+    
   } catch (error) {
-    console.error('Ошибка при обновлении настроек:', error);
-    alert('Произошла ошибка при обновлении настроек');
+    console.error('Ошибка при применении настроек:', error);
+    alert(`Ошибка при обновлении настроек: ${error.message || 'Неизвестная ошибка'}`);
   }
- };
+};
  
  // Удаляем обработчик события перед размонтированием компонента
  onBeforeUnmount(() => {
   if (messageInput.value) {
     messageInput.value.removeEventListener('keydown', handleTextareaKeyDown);
   }
- });
+  
+  // Удаляем обработчик изменения размера окна
+  window.removeEventListener('resize', handleResize);
+});
  
  // Прокрутка к последнему сообщению при изменении списка сообщений
  onUpdated(() => {
@@ -462,6 +501,11 @@
   messageInput.value.style.height = `${newHeight}px`;
  };
  
+ // Переменные для debounce
+let temperatureUpdateTimeout;
+let systemPromptUpdateTimeout;
+let maxTokensUpdateTimeout;
+
  // Отслеживаем изменения в поле ввода для регулировки высоты
  watch(newMessage, () => {
   nextTick(() => {
@@ -469,9 +513,37 @@
   });
  });
  
- // Наблюдаем за изменением провайдера
- watch(selectedProvider, handleProviderChange);
+// Добавляем наблюдатели для отслеживания изменений настроек
+// Наблюдаем за изменением провайдера
+watch(selectedProvider, handleProviderChange);
  
+ // Наблюдаем за изменением температуры
+watch(temperature, () => {
+  // Используем debounce для предотвращения частых запросов
+  clearTimeout(temperatureUpdateTimeout);
+  temperatureUpdateTimeout = setTimeout(() => {
+    handleTemperatureChange();
+  }, 500); // Задержка 500мс
+});
+
+ // Наблюдаем за изменением системного промта
+watch(systemPrompt, () => {
+  // Используем debounce для предотвращения частых запросов
+  clearTimeout(systemPromptUpdateTimeout);
+  systemPromptUpdateTimeout = setTimeout(() => {
+    handleSystemPromptChange();
+  }, 1000); // Задержка 1с для более долгого ввода
+});
+
+ // Наблюдаем за изменением провайдера
+watch(maxTokens, () => {
+  // Используем debounce для предотвращения частых запросов
+  clearTimeout(maxTokensUpdateTimeout);
+  maxTokensUpdateTimeout = setTimeout(() => {
+    handleMaxTokensChange();
+  }, 500); // Задержка 500мс
+});
+
  // Отправка сообщения
  const sendMessage = async () => {
   if (!newMessage.value.trim() || isSending.value) return;
@@ -602,6 +674,125 @@
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
   }
  };
+
+// Обработчик изменения температуры
+const handleTemperatureChange = () => {
+  if (!selectedModel.value) return;
+  
+  console.log("handleTemperatureChange - temperature:", temperature.value);
+  
+  // Получаем информацию о выбранной модели
+  const selectedModelData = availableModels.value.find(
+    model => model.code === selectedModel.value
+  );
+  
+  if (!selectedModelData) {
+    console.error('Выбранная модель не найдена в списке доступных моделей');
+    return;
+  }
+  
+  // Если мы находимся в активном чате, обновляем настройки треда
+  if (activeChatId.value && !isNewThread.value) {
+    // Отправляем PUT запрос на обновление треда с новой температурой
+    threadService.updateThread(activeChatId.value, {
+      temperature: parseFloat(temperature.value)
+    }).catch(error => {
+      console.error('Ошибка при обновлении температуры треда:', error);
+    });
+  }
+  
+  // Обновляем настройки предпочтения модели пользователя
+  if (selectedModelData.id) {
+    modelService.updateModelPreference(selectedModelData.id, {
+      temperature: parseFloat(temperature.value)
+    }).catch(error => {
+      console.error('Ошибка при обновлении предпочтения модели:', error);
+    });
+  }
+};
+
+// Обработчик изменения системного промпта
+const handleSystemPromptChange = () => {
+  if (!selectedModel.value) return;
+  
+  console.log("handleSystemPromptChange - systemPrompt:", systemPrompt.value);
+  
+  // Получаем информацию о выбранной модели
+  const selectedModelData = availableModels.value.find(
+    model => model.code === selectedModel.value
+  );
+  
+  if (!selectedModelData) {
+    console.error('Выбранная модель не найдена в списке доступных моделей');
+    return;
+  }
+  
+  // Если мы находимся в активном чате, обновляем настройки треда
+  if (activeChatId.value && !isNewThread.value) {
+    // Обновляем системный промпт в сообщениях, если треда существует
+    updateSystemPrompt().catch(error => {
+      console.error('Ошибка при обновлении системного промпта:', error);
+    });
+    
+    // Отправляем PUT запрос на обновление треда с новым системным промптом
+    threadService.updateThread(activeChatId.value, {
+      system_prompt: systemPrompt.value
+    }).catch(error => {
+      console.error('Ошибка при обновлении системного промпта треда:', error);
+    });
+  }
+  
+  // Обновляем настройки предпочтения модели пользователя
+  if (selectedModelData.id) {
+    modelService.updateModelPreference(selectedModelData.id, {
+      system_prompt: systemPrompt.value
+    }).catch(error => {
+      console.error('Ошибка при обновлении предпочтения модели:', error);
+    });
+  }
+};
+
+// Обработчик изменения максимальной длины ответа
+const handleMaxTokensChange = () => {
+  if (!selectedModel.value) return;
+  
+  console.log("handleMaxTokensChange - maxTokens:", maxTokens.value);
+  
+  // Получаем информацию о выбранной модели
+  const selectedModelData = availableModels.value.find(
+    model => model.code === selectedModel.value
+  );
+  
+  if (!selectedModelData) {
+    console.error('Выбранная модель не найдена в списке доступных моделей');
+    return;
+  }
+  
+  // Преобразуем значение в число
+  const maxTokensValue = parseInt(maxTokens.value);
+  
+  // Если мы находимся в активном чате, обновляем настройки треда
+  if (activeChatId.value && !isNewThread.value) {
+    // Отправляем PUT запрос на обновление треда с новым значением max_tokens
+    threadService.updateThread(activeChatId.value, {
+      max_tokens: maxTokensValue
+    }).catch(error => {
+      console.error('Ошибка при обновлении максимальной длины ответа треда:', error);
+    });
+  }
+  
+  // Обновляем настройки предпочтения модели пользователя
+  if (selectedModelData.id) {
+    modelService.updateModelPreference(selectedModelData.id, {
+      max_tokens: maxTokensValue
+    }).catch(error => {
+      console.error('Ошибка при обновлении предпочтения модели:', error);
+    });
+  }
+};
+
+
+
  </script>
  
  <style scoped>

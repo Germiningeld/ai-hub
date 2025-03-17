@@ -9,7 +9,7 @@ def print_tree(directory='.', exclude_dirs=[
     '.pytest_cache',
     'node_modules',
     'alembic',
-    'frontend'
+    'backend',
 ]):
     for root, dirs, files in os.walk(directory):
         # Исключаем нежелательные директории

@@ -1,4 +1,3 @@
-// src/services/modelService.js
 import api from './api';
 
 export default {

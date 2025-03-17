@@ -101,20 +101,53 @@ async def get_available_models(
             detail=f"Не удалось получить список доступных моделей: {str(e)}"
         )
 
+
 @router.get("/preferences", response_model=List[ModelPreferencesSchema])
 async def get_model_preferences(
         db: AsyncSession = Depends(get_async_session),
         current_user: UserOrm = Depends(get_current_user)
 ):
     """
-    Возвращает список настроек моделей пользователя.
+    Возвращает список настроек моделей пользователя с дополнительными полями provider_code и model_code.
     """
+    # Получаем настройки моделей пользователя через стандартный ORM запрос
     result = await db.execute(
         select(ModelPreferencesOrm)
         .filter(ModelPreferencesOrm.user_id == current_user.id)
         .order_by(ModelPreferencesOrm.provider_id, ModelPreferencesOrm.model_id)
     )
     preferences = result.scalars().all()
+
+    # Получаем информацию о провайдерах и моделях
+    provider_ids = [pref.provider_id for pref in preferences]
+    model_ids = [pref.model_id for pref in preferences]
+
+    # Получаем коды провайдеров
+    if provider_ids:
+        provider_result = await db.execute(
+            select(ProviderOrm.id, ProviderOrm.code)
+            .filter(ProviderOrm.id.in_(provider_ids))
+        )
+        provider_map = {provider_id: code for provider_id, code in provider_result.all()}
+    else:
+        provider_map = {}
+
+    # Получаем коды моделей
+    if model_ids:
+        model_result = await db.execute(
+            select(AIModelOrm.id, AIModelOrm.code)
+            .filter(AIModelOrm.id.in_(model_ids))
+        )
+        model_map = {model_id: code for model_id, code in model_result.all()}
+    else:
+        model_map = {}
+
+    # Обновляем коды в preferences, если они не указаны
+    for pref in preferences:
+        if not pref.provider_code and pref.provider_id in provider_map:
+            pref.provider_code = provider_map[pref.provider_id]
+        if not pref.model_code and pref.model_id in model_map:
+            pref.model_code = model_map[pref.model_id]
 
     return preferences
 
@@ -125,7 +158,8 @@ async def get_default_preferences(
         current_user: UserOrm = Depends(get_current_user)
 ):
     """
-    Возвращает настройки моделей по умолчанию для каждого провайдера.
+    Возвращает настройки моделей по умолчанию для каждого провайдера,
+    включая коды провайдера и модели.
     """
     result = await db.execute(
         select(ModelPreferencesOrm).filter(
@@ -135,12 +169,42 @@ async def get_default_preferences(
     )
     defaults = result.scalars().all()
 
+    # Получаем список ID провайдеров и моделей
+    provider_ids = [pref.provider_id for pref in defaults]
+    model_ids = [pref.model_id for pref in defaults]
+
+    # Получаем коды провайдеров
+    if provider_ids:
+        provider_result = await db.execute(
+            select(ProviderOrm.id, ProviderOrm.code)
+            .filter(ProviderOrm.id.in_(provider_ids))
+        )
+        provider_map = {provider_id: code for provider_id, code in provider_result.all()}
+    else:
+        provider_map = {}
+
+    # Получаем коды моделей
+    if model_ids:
+        model_result = await db.execute(
+            select(AIModelOrm.id, AIModelOrm.code)
+            .filter(AIModelOrm.id.in_(model_ids))
+        )
+        model_map = {model_id: code for model_id, code in model_result.all()}
+    else:
+        model_map = {}
+
+    # Обновляем коды в preferences, если они не указаны
+    for pref in defaults:
+        if not pref.provider_code and pref.provider_id in provider_map:
+            pref.provider_code = provider_map[pref.provider_id]
+        if not pref.model_code and pref.model_id in model_map:
+            pref.model_code = model_map[pref.model_id]
+
     result = {}
     for pref in defaults:
         result[pref.provider_id] = ModelPreferencesSchema.from_orm(pref)
 
     return result
-
 
 @router.post("/preferences", response_model=ModelPreferencesSchema, status_code=status.HTTP_201_CREATED)
 async def create_model_preferences(
@@ -213,7 +277,9 @@ async def create_model_preferences(
         max_tokens=preferences_data.max_tokens,
         temperature=preferences_data.temperature,
         system_prompt=preferences_data.system_prompt,
-        is_default=preferences_data.is_default
+        is_default=preferences_data.is_default,
+        provider_code=provider.code,  # Добавляем код провайдера
+        model_code=model.code        # Добавляем код модели
     )
 
     db.add(new_preferences)
@@ -248,6 +314,9 @@ async def update_model_preferences(
         )
 
     # Проверяем валидность provider_id и model_id, если они изменяются
+    update_provider_code = False
+    update_model_code = False
+
     if preferences_data.provider_id is not None:
         provider_result = await db.execute(
             select(ProviderOrm).filter(ProviderOrm.id == preferences_data.provider_id)
@@ -261,6 +330,8 @@ async def update_model_preferences(
             )
 
         preferences.provider_id = preferences_data.provider_id
+        preferences.provider_code = provider.code  # Обновляем код провайдера
+        update_provider_code = True
 
     if preferences_data.model_id is not None:
         model_result = await db.execute(
@@ -278,6 +349,20 @@ async def update_model_preferences(
             )
 
         preferences.model_id = preferences_data.model_id
+        preferences.model_code = model.code  # Обновляем код модели
+        update_model_code = True
+
+    # Если мы изменили провайдера, но не модель, возможно нужно обновить model_code
+    if update_provider_code and not update_model_code:
+        model_result = await db.execute(
+            select(AIModelOrm).filter(
+                (AIModelOrm.id == preferences.model_id) &
+                (AIModelOrm.provider_id == preferences_data.provider_id)
+            )
+        )
+        model = model_result.scalar_one_or_none()
+        if model:
+            preferences.model_code = model.code
 
     # Обновляем поля настроек
     if preferences_data.max_tokens is not None:

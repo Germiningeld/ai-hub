@@ -9,397 +9,228 @@
           <div class="alert alert-info mb-4">
             <p class="mb-0">
               <i class="bi bi-info-circle me-2"></i>
-              Здесь вы можете настроить параметры моделей искусственного интеллекта и создать 
-              собственные пресеты для различных задач.
+              Здесь вы можете активировать модели и настроить их параметры для различных задач.
             </p>
           </div>
 
-          <!-- Кнопка создания пресета (без обертки в card) -->
-          <div v-if="!showPreferenceForm" class="mb-5">
-            <button 
-              class="btn btn-primary" 
-              @click="showPreferenceForm = true"
-            >
-              <i class="bi bi-plus-circle me-2"></i>
-              Создать новый пресет
-            </button>
-          </div>
-
-          <!-- Форма добавления нового пресета -->
-          <div v-if="showPreferenceForm" class="card mb-5">
-            <div class="card-header bg-light d-flex justify-content-between align-items-center">
-              <h5 class="mb-0">{{ editingPreference ? 'Редактирование пресета' : 'Добавление нового пресета' }}</h5>
-              <button 
-                class="btn btn-sm btn-outline-secondary" 
-                @click="cancelForm"
-                title="Отменить"
-              >
-                <i class="bi bi-x"></i>
-              </button>
-            </div>
-            <div class="card-body">
-              <form @submit.prevent="saveModelPreference">
-                <!-- Основная информация о пресете -->
-                <div class="mb-4">
-                  <h6 class="form-section-title">Основная информация</h6>
-                  
-                  <!-- Выбор API ключа -->
-                  <div class="mb-4">
-                    <label for="apiKeySelect" class="form-label">API ключ</label>
-                    <select 
-                      id="apiKeySelect" 
-                      class="form-select"
-                      v-model="preferenceForm.api_key_id"
-                      required
-                    >
-                      <option value="">Выберите API ключ</option>
-                      <option 
-                        v-for="key in activeApiKeys" 
-                        :key="key.id" 
-                        :value="key.id"
-                      >
-                        {{ key.name || key.provider }} ({{ getProviderName(key.provider) }})
-                      </option>
-                    </select>
-                    <div class="form-text" v-if="!activeApiKeys.length">
-                      У вас нет активных API ключей. <router-link to="/settings/api-keys">Добавьте API ключ</router-link> для работы с моделями.
-                    </div>
-                  </div>
-
-                  <!-- Название и описание в одной строке -->
-                  <div class="row">
-                    <!-- Ввод названия модели (текстовое поле) -->
-                    <div class="col-md-6 mb-4">
-                      <label for="modelInput" class="form-label">Название модели</label>
-                      <input 
-                        type="text" 
-                        class="form-control" 
-                        id="modelInput"
-                        v-model="preferenceForm.model"
-                        placeholder="Например: gpt-4o, claude-3-opus и т.д."
-                        required
-                      >
-                      <div class="form-text">
-                        Точное название модели AI
-                      </div>
-                    </div>
-
-                    <!-- Описание пресета -->
-                    <div class="col-md-6 mb-4">
-                      <label for="description" class="form-label">Описание пресета</label>
-                      <input 
-                        type="text" 
-                        class="form-control" 
-                        id="description"
-                        v-model="preferenceForm.description"
-                        placeholder="Например: Для технических задач"
-                        required
-                      >
-                      <div class="form-text">
-                        Понятное название для вашего пресета
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Параметры генерации -->
-                <div class="mb-4">
-                  <h6 class="form-section-title">Параметры генерации</h6>
-                  
-                  <div class="row">
-                    <!-- Максимальное количество токенов (текстовое поле) -->
-                    <div class="col-md-6 mb-4">
-                      <label for="maxTokens" class="form-label">Максимальное количество токенов</label>
-                      <input 
-                        type="number" 
-                        class="form-control" 
-                        id="maxTokens"
-                        v-model="preferenceForm.max_tokens"
-                        min="100"
-                        max="100000"
-                        placeholder="2000"
-                      >
-                      <div class="form-text">
-                        Ограничение длины ответа (по умолчанию: 2000)
-                      </div>
-                    </div>
-
-                    <!-- Температура -->
-                    <div class="col-md-6 mb-4">
-                      <label for="temperature" class="form-label">Температура</label>
-                      <div class="d-flex align-items-center gap-2">
-                        <input 
-                          type="range" 
-                          class="form-range flex-grow-1" 
-                          id="temperature" 
-                          min="0" 
-                          max="1" 
-                          step="0.1" 
-                          v-model="preferenceForm.temperature"
-                        >
-                        <span class="text-muted">{{ preferenceForm.temperature }}</span>
-                      </div>
-                      <div class="d-flex justify-content-between small text-muted">
-                        <span>Точный</span>
-                        <span>Творческий</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <!-- Системный промпт -->
-                  <div class="mb-4">
-                    <label for="systemPrompt" class="form-label">Системный промпт (необязательно)</label>
-                    <textarea 
-                      id="systemPrompt" 
-                      class="form-control" 
-                      rows="3" 
-                      v-model="preferenceForm.system_prompt"
-                      placeholder="Опишите роль и поведение ассистента..."
-                    ></textarea>
-                    <div class="form-text">
-                      Системный промпт задаёт поведение и тон модели при взаимодействии
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Стоимость использования модели -->
-                <div class="mb-4">
-                  <h6 class="form-section-title">Стоимость использования</h6>
-                  <div class="cost-container p-3 border rounded mb-2">
-                    <div class="row g-3">
-                      <div class="col-md-4">
-                        <label for="inputCost" class="form-label d-flex align-items-center">
-                          <span class="me-1">Input</span>
-                          <i class="bi bi-info-circle text-muted" title="Стоимость входных токенов"></i>
-                        </label>
-                        <div class="input-group">
-                          <span class="input-group-text">$</span>
-                          <input 
-                            type="number" 
-                            class="form-control" 
-                            id="inputCost"
-                            v-model="preferenceForm.input_cost"
-                            min="0"
-                            step="0.001"
-                            placeholder="0.00"
-                          >
-                        </div>
-                      </div>
-                      
-                      <div class="col-md-4">
-                        <label for="outputCost" class="form-label d-flex align-items-center">
-                          <span class="me-1">Output</span>
-                          <i class="bi bi-info-circle text-muted" title="Стоимость выходных токенов"></i>
-                        </label>
-                        <div class="input-group">
-                          <span class="input-group-text">$</span>
-                          <input 
-                            type="number" 
-                            class="form-control" 
-                            id="outputCost"
-                            v-model="preferenceForm.output_cost"
-                            min="0"
-                            step="0.001"
-                            placeholder="0.00"
-                          >
-                        </div>
-                      </div>
-                      
-                      <div class="col-md-4">
-                        <label for="cachedInputCost" class="form-label d-flex align-items-center">
-                          <span class="me-1">Cached input</span>
-                          <i class="bi bi-info-circle text-muted" title="Стоимость кешированных токенов"></i>
-                        </label>
-                        <div class="input-group">
-                          <span class="input-group-text">$</span>
-                          <input 
-                            type="number" 
-                            class="form-control" 
-                            id="cachedInputCost"
-                            v-model="preferenceForm.cached_input_cost"
-                            min="0"
-                            step="0.001"
-                            placeholder="0.00"
-                          >
-                        </div>
-                      </div>
-                    </div>
-                    <div class="form-text mt-2">
-                      Указывайте стоимость токенов для более точного учета расходов
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Дополнительные настройки -->
-                <div class="mb-4">
-                  <h6 class="form-section-title">Дополнительные настройки</h6>
-                  
-                  <!-- По умолчанию -->
-                  <div class="form-check mb-3">
-                    <input 
-                      class="form-check-input" 
-                      type="checkbox" 
-                      id="isDefault" 
-                      v-model="preferenceForm.is_default"
-                    >
-                    <label class="form-check-label" for="isDefault">
-                      Использовать как пресет по умолчанию для этого провайдера
-                    </label>
-                  </div>
-                </div>
-
-                <!-- Кнопки отправки формы -->
-                <div class="d-flex gap-2 mt-4">
-                  <button 
-                    type="submit" 
-                    class="btn btn-primary"
-                    :disabled="isSubmitting || !isFormValid"
-                  >
-                    <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                    {{ editingPreference ? 'Сохранить изменения' : 'Создать пресет' }}
-                  </button>
-                  <button 
-                    type="button" 
-                    class="btn btn-outline-secondary"
-                    @click="cancelForm"
-                  >
-                    Отмена
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Список существующих пресетов -->
-      <div class="row mt-5">
-        <div class="col-lg-10 col-xl-8">
+          <!-- Фильтры моделей -->
           <div class="d-flex justify-content-between align-items-center mb-4">
-            <h5 class="mb-0">Ваши пресеты моделей</h5>
-            
-            <!-- Фильтр по провайдерам (выпадающий список) -->
+            <h5 class="mb-0">Доступные модели</h5>
+
+            <!-- Фильтр по провайдерам -->
             <div v-if="providers.length > 1" class="dropdown">
-              <button 
-                class="btn btn-outline-primary dropdown-toggle" 
-                type="button" 
-                id="providerFilterDropdown" 
-                data-bs-toggle="dropdown" 
+              <button
+                class="btn btn-outline-primary dropdown-toggle"
+                type="button"
+                id="providerFilterDropdown"
+                data-bs-toggle="dropdown"
                 aria-expanded="false"
               >
                 {{ selectedProviderFilter ? `Фильтр: ${getProviderName(selectedProviderFilter)}` : 'Все провайдеры' }}
               </button>
               <ul class="dropdown-menu" aria-labelledby="providerFilterDropdown">
                 <li>
-                  <button 
-                    class="dropdown-item" 
-                    :class="{ 'active': selectedProviderFilter === '' }" 
+                  <button
+                    class="dropdown-item"
+                    :class="{ 'active': selectedProviderFilter === '' }"
                     @click="selectedProviderFilter = ''"
                   >
                     Все провайдеры
                   </button>
                 </li>
-                <li v-for="provider in providers" :key="provider">
-                  <button 
-                    class="dropdown-item" 
-                    :class="{ 'active': selectedProviderFilter === provider }" 
-                    @click="selectedProviderFilter = provider"
+                <li v-for="provider in providers" :key="provider.id">
+                  <button
+                    class="dropdown-item"
+                    :class="{ 'active': selectedProviderFilter === provider.code }"
+                    @click="selectedProviderFilter = provider.code"
                   >
-                    {{ getProviderName(provider) }}
+                    {{ getProviderName(provider.code) }}
                   </button>
                 </li>
               </ul>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div v-if="loading" class="text-center py-4">
-            <div class="spinner-border text-primary" role="status">
-              <span class="visually-hidden">Загрузка...</span>
+      <!-- Список провайдеров и их моделей -->
+      <div v-if="loading" class="text-center py-4">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Загрузка...</span>
+        </div>
+      </div>
+
+      <div v-else>
+        <div v-for="provider in filteredProviders" :key="provider.id" class="row mb-5">
+          <div class="card col-lg-10 col-xl-8">
+            <div class="card-header bg-light">
+              <h5 class="mb-0 d-flex align-items-center">
+                <div class="provider-icon me-2" :style="{ 'background-color': getProviderColor(provider.code) }">
+                  <i class="bi" :class="getProviderIcon(provider.code)"></i>
+                </div>
+                {{ getProviderName(provider.code) }}
+              </h5>
             </div>
-          </div>
 
-          <div v-else-if="!filteredModelPreferences.length" class="alert alert-secondary">
-            <p class="mb-0 text-center">
-              <i class="bi bi-cpu" style="font-size: 1.5rem;"></i>
-              <br>
-              {{ selectedProviderFilter ? `У вас пока нет сохранённых пресетов моделей для ${getProviderName(selectedProviderFilter)}.` : 'У вас пока нет сохранённых пресетов моделей.' }} 
-              Создайте пресет для более удобной работы с разными типами задач.
-            </p>
-          </div>
+            <div class="card-body">
+              <!-- Проверка наличия API ключа -->
+              <div v-if="!hasApiKeyForProvider(provider.id)" class="alert alert-warning mb-3">
+                <p class="mb-0">
+                  <i class="bi bi-exclamation-triangle me-2"></i>
+                  Для работы с этим провайдером необходимо
+                  <router-link to="/settings/api-keys">добавить API ключ</router-link>.
+                </p>
+              </div>
 
-          <!-- Горизонтальные карточки пресетов -->
-          <div v-else>
-            <div 
-              v-for="preference in filteredModelPreferences" 
-              :key="preference.id"
-              class="card mb-3"
-            >
-              <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start">
-                  <div class="flex-grow-1">
-                    <div class="d-flex align-items-center">
-                      <div class="model-icon me-3" :style="{ 'background-color': getProviderColor(preference.provider) }">
-                        <i class="bi" :class="getProviderIcon(preference.provider)"></i>
-                      </div>
-                      <div>
-                        <h5 class="mb-1">
-                          {{ preference.description }}
-                        </h5>
-                        <div class="text-muted">
-                          <span class="me-3">{{ getProviderName(preference.provider) }}</span>
-                          <span class="me-3"><strong>Модель:</strong> {{ preference.model }}</span>
-                          <span class="me-3"><strong>Токены:</strong> {{ preference.max_tokens }}</span>
-                          <span><strong>Температура:</strong> {{ preference.temperature }}</span>
+              <!-- Список моделей провайдера -->
+              <div v-for="model in provider.models" :key="model.id" class="model-card mb-3">
+                <div :class="['card', isModelActive(model.id) ? 'border-primary' : 'border-light']">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                      <div class="flex-grow-1">
+                        <div class="">{{ model.name }}</div>
+
+                        <div v-if="isModelActive(model.id) && !expandedModels.includes(model.id)" class="mt-2 pt-2 border-top">
+                        <div class="row ">
+                          <div class="col-md-6 mb-1">
+                            <span class="text-muted me-1">Максимум токенов:</span>
+                            <strong>{{ modelSettingsMap[model.id]?.max_tokens }}</strong>
+                          </div>
+                          <div class="col-md-6 mb-1">
+                            <span class="text-muted me-1">Температура:</span>
+                            <strong>{{ modelSettingsMap[model.id]?.temperature }}</strong>
+                          </div>
+                        </div>
+                        <div v-if="modelSettingsMap[model.id]?.system_prompt" class="mb-1">
+                          <span class="text-muted me-1">Системный промпт:</span>
+                          <span class="small">{{ truncateText(modelSettingsMap[model.id]?.system_prompt, 100) }}</span>
                         </div>
                       </div>
+
+                      </div>
+
+                      <div class="model-actions">
+  <!-- Переключатель активации модели -->
+  <div class="form-check form-switch d-inline-block me-2">
+    <input
+      class="form-check-input"
+      type="checkbox"
+      :id="`model-${model.id}-toggle`"
+      :checked="isModelActive(model.id)"
+      @change="toggleModelActivation(model, provider)"
+      :disabled="!hasApiKeyForProvider(provider.id)"
+    >
+    <label class="form-check-label" :for="`model-${model.id}-toggle`">
+      {{ isModelActive(model.id) ? 'Активна' : 'Неактивна' }}
+    </label>
+  </div>
+
+  <!-- Кнопка установки модели по умолчанию -->
+  <button
+    v-if="isModelActive(model.id)"
+    :class="['btn btn-sm me-2', isModelDefault(model.id) ? 'btn-warning' : 'btn-outline-warning']"
+    @click="toggleDefaultModel(model.id, provider.id)"
+    title="Установить по умолчанию"
+  >
+    <i class="bi bi-star-fill"></i>
+  </button>
+
+  <!-- Кнопка настройки активной модели -->
+  <button
+    v-if="isModelActive(model.id)"
+    class="btn btn-sm btn-outline-primary"
+    @click="toggleModelSettings(model.id)"
+    title="Настроить модель"
+  >
+    <i class="bi bi-gear"></i>
+  </button>
+</div>
                     </div>
-                    
-                    <div class="mt-3">
-                      <div v-if="preference.system_prompt" class="mb-2">
-                        <small class="text-muted d-block">Системный промпт:</small>
-                        <p class="small mb-0 text-truncate-2">{{ preference.system_prompt }}</p>
-                      </div>
-                      <div class="d-flex flex-wrap text-muted small mt-2">
-                        <div class="me-3 mb-1">
-                          <strong>Использований:</strong> {{ preference.use_count || 0 }}
+
+                    <!-- Настройки модели (развернутая панель) -->
+                    <div v-if="isModelActive(model.id) && expandedModels.includes(model.id)" class="model-settings-panel mt-3 pt-3 border-top">
+                      <form @submit.prevent="saveModelSettings(model.id)">
+                        <div class="row">
+                          <!-- Максимум токенов -->
+                          <div class="col-md-6 mb-3">
+                            <label :for="`model-${model.id}-max-tokens`" class="form-label">Максимум токенов</label>
+                            <input
+                              type="number"
+                              class="form-control"
+                              :id="`model-${model.id}-max-tokens`"
+                              v-model="modelSettingsMap[model.id].max_tokens"
+                              min="100"
+                              max="100000"
+                              required
+                            >
+                            <div class="form-text">
+                              Максимальное количество токенов для ответа
+                            </div>
+                          </div>
+
+                          <!-- Температура -->
+                          <div class="col-md-6 mb-3">
+                            <label :for="`model-${model.id}-temperature`" class="form-label">Температура</label>
+                            <div class="d-flex align-items-center gap-2">
+                              <input
+                                type="range"
+                                class="form-range flex-grow-1"
+                                :id="`model-${model.id}-temperature`"
+                                min="0"
+                                max="1"
+                                step="0.1"
+                                v-model="modelSettingsMap[model.id].temperature"
+                              >
+                              <span class="text-muted">{{ modelSettingsMap[model.id].temperature }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between small text-muted">
+                              <span>Точный</span>
+                              <span>Творческий</span>
+                            </div>
+                          </div>
                         </div>
-                        <div class="me-3 mb-1">
-                          <strong>Последнее использование:</strong> {{ formatDate(preference.last_used_at) }}
+
+                        <!-- Системный промпт -->
+                        <div class="mb-3">
+                          <label :for="`model-${model.id}-system-prompt`" class="form-label">Системный промпт (необязательно)</label>
+                          <textarea
+                            :id="`model-${model.id}-system-prompt`"
+                            class="form-control"
+                            rows="3"
+                            v-model="modelSettingsMap[model.id].system_prompt"
+                            placeholder="Опишите роль и поведение ассистента..."
+                          ></textarea>
+                          <div class="form-text">
+                            Системный промпт задаёт поведение и тон модели при взаимодействии
+                          </div>
                         </div>
-                        <div v-if="preference.input_cost" class="mb-1">
-                          <strong>Стоимость ($):</strong> 
-                          <span title="Input / Output / Cached">
-                            {{ preference.input_cost }} / {{ preference.output_cost }} / {{ preference.cached_input_cost }}
-                          </span>
+
+                        <!-- Модель по умолчанию -->
+                        <div class="form-check mb-3">
+                          <input
+                            class="form-check-input"
+                            type="checkbox"
+                            :id="`model-${model.id}-default`"
+                            v-model="modelSettingsMap[model.id].is_default"
+                          >
+                          <label class="form-check-label" :for="`model-${model.id}-default`">
+                            Использовать как модель по умолчанию для {{ getProviderName(provider.code) }}
+                          </label>
                         </div>
-                      </div>
+
+                        <!-- Кнопки действий -->
+                        <div class="d-flex gap-2">
+                          <button type="submit" class="btn btn-primary">Сохранить настройки</button>
+                          <button
+                            type="button"
+                            class="btn btn-outline-danger"
+                            @click="confirmDeactivateModel(model.id)"
+                          >
+                            Деактивировать модель
+                          </button>
+                        </div>
+                      </form>
                     </div>
-                  </div>
-                  
-                  <div class="model-actions">
-                    <button
-                      class="btn btn-sm btn-outline-primary me-2"
-                      @click="editPreference(preference)"
-                      title="Редактировать"
-                    >
-                      <i class="bi bi-pencil"></i>
-                    </button>
-                    <button
-                      class="btn btn-sm"
-                      :class="preference.is_default ? 'btn-success' : 'btn-outline-success'"
-                      @click="setAsDefault(preference)"
-                      :disabled="preference.is_default"
-                      title="Установить по умолчанию"
-                    >
-                      <i class="bi bi-star-fill"></i>
-                    </button>
-                    <button
-                      class="btn btn-sm btn-outline-danger ms-2"
-                      @click="confirmDeletePreference(preference)"
-                      title="Удалить"
-                    >
-                      <i class="bi bi-trash"></i>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -409,20 +240,20 @@
       </div>
     </div>
 
-    <!-- Модальное окно подтверждения удаления -->
-    <div class="modal fade" id="deletePreferenceModal" tabindex="-1" aria-labelledby="deletePreferenceModalLabel" aria-hidden="true">
+    <!-- Модальное окно подтверждения деактивации -->
+    <div class="modal fade" id="deactivateModelModal" tabindex="-1" aria-labelledby="deactivateModelModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="deletePreferenceModalLabel">Удаление пресета</h5>
+            <h5 class="modal-title" id="deactivateModelModalLabel">Деактивация модели</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
-            Вы уверены, что хотите удалить пресет "{{ selectedPreference?.description }}"?
+            Вы уверены, что хотите деактивировать эту модель? Все ее настройки будут удалены.
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-            <button type="button" class="btn btn-danger" @click="deletePreference">Удалить</button>
+            <button type="button" class="btn btn-danger" @click="deactivateModel">Деактивировать</button>
           </div>
         </div>
       </div>
@@ -437,366 +268,426 @@ import { useApiKeysStore } from '@/stores/apiKeys';
 
 // Состояние компонента
 const loading = ref(true);
-const isSubmitting = ref(false);
-const showPreferenceForm = ref(false);
-const editingPreference = ref(null);
-const selectedPreference = ref(null);
-const modelPreferences = ref([]);
+const providers = ref([]);
 const selectedProviderFilter = ref('');
-let deleteModal = null;
+const expandedModels = ref([]);
+const modelSettingsMap = ref({});
+const selectedModelToDeactivate = ref(null);
+let deactivateModal = null;
 
-// Получаем хранилище моделей и API ключей
+// Получаем хранилища
 const modelStore = useModelStore();
 const apiKeysStore = useApiKeysStore();
 
-// Начальное состояние формы с дефолтными значениями
-const defaultFormState = {
-  api_key_id: '',
-  model: '',
-  description: '',
-  max_tokens: '2000', // Значение по умолчанию
-  temperature: 0.7,
-  system_prompt: '',
-  is_default: false,
-  input_cost: '',
-  output_cost: '',
-  cached_input_cost: ''
-};
-
-// Форма для создания/редактирования пресета модели
-const preferenceForm = ref({...defaultFormState});
-
-// Вычисляемое свойство для получения активных API ключей
-const activeApiKeys = computed(() => {
-  return apiKeysStore.getAllKeys.filter(key => key.is_active);
-});
-
-// Вычисляемое свойство для определения провайдера на основе выбранного API ключа
-const selectedProvider = computed(() => {
-  if (!preferenceForm.value.api_key_id) return null;
-  
-  const apiKey = apiKeysStore.getAllKeys.find(key => key.id === preferenceForm.value.api_key_id);
-  return apiKey ? apiKey.provider : null;
-});
-
-// Список уникальных провайдеров из имеющихся пресетов
-const providers = computed(() => {
-  const providerSet = new Set(modelPreferences.value.map(pref => pref.provider));
-  return [...providerSet];
-});
-
-// Фильтрованный список пресетов
-const filteredModelPreferences = computed(() => {
+// Фильтрованные провайдеры
+const filteredProviders = computed(() => {
   if (!selectedProviderFilter.value) {
-    return modelPreferences.value;
+    return providers.value;
   }
-  
-  return modelPreferences.value.filter(pref => pref.provider === selectedProviderFilter.value);
-});
 
-// Вычисляемое свойство для валидации формы
-const isFormValid = computed(() => {
-  return preferenceForm.value.api_key_id && 
-         preferenceForm.value.model && 
-         preferenceForm.value.description;
+  return providers.value.filter(provider => provider.code === selectedProviderFilter.value);
 });
 
 // Монтирование компонента
 onMounted(async () => {
-  await Promise.all([
-    fetchModelPreferences(),
-    apiKeysStore.fetchApiKeys()
-  ]);
-  
-  // Инициализация модального окна для удаления
-  initDeleteModal();
-});
-
-// Инициализация модального окна
-const initDeleteModal = () => {
-  const modalEl = document.getElementById('deletePreferenceModal');
-  if (modalEl && typeof bootstrap !== 'undefined') {
-    deleteModal = new bootstrap.Modal(modalEl);
-  }
-};
-
-// Получение списка пресетов моделей
-const fetchModelPreferences = async () => {
   try {
     loading.value = true;
-    await modelStore.fetchModelPreferences();
-    modelPreferences.value = modelStore.getModelPreferences;
-  } catch (error) {
-    console.error('Ошибка при загрузке пресетов моделей:', error);
-    showErrorMessage('Не удалось загрузить пресеты моделей');
+    await Promise.all([
+      fetchProviders(),
+      apiKeysStore.fetchApiKeys()
+    ]);
+
+    // Инициализация модального окна
+    initDeactivateModal();
   } finally {
     loading.value = false;
   }
-};
+});
 
-// Обновляем функцию saveModelPreference для лучшей обработки ошибок
-const saveModelPreference = async () => {
-  try {
-    isSubmitting.value = true;
-    
-    // Если выбран API ключ, получаем информацию о провайдере
-    if (preferenceForm.value.api_key_id) {
-      const apiKey = apiKeysStore.getAllKeys.find(key => key.id === preferenceForm.value.api_key_id);
-      if (apiKey) {
-        preferenceForm.value.provider = apiKey.provider;
-      }
-    }
-    
-    // Преобразование полей в нужные типы данных
-    const preferenceData = {
-      ...preferenceForm.value,
-      max_tokens: parseInt(preferenceForm.value.max_tokens),
-      temperature: parseFloat(preferenceForm.value.temperature),
-      input_cost: preferenceForm.value.input_cost ? parseFloat(preferenceForm.value.input_cost) : null,
-      output_cost: preferenceForm.value.output_cost ? parseFloat(preferenceForm.value.output_cost) : null,
-      cached_input_cost: preferenceForm.value.cached_input_cost ? parseFloat(preferenceForm.value.cached_input_cost) : null
-    };
-    
-    if (editingPreference.value) {
-      // Обновление существующего пресета
-      await modelStore.updateModelPreference(editingPreference.value.id, preferenceData);
-      showSuccessMessage('Пресет успешно обновлен');
-    } else {
-      // Создание нового пресета
-      await modelStore.createModelPreference(preferenceData);
-      showSuccessMessage('Пресет успешно создан');
-    }
-    
-    // Обновляем список пресетов
-    await fetchModelPreferences();
-    
-    // Сбрасываем форму
-    resetForm();
-  } catch (error) {
-    console.error('Ошибка при сохранении пресета модели:', error);
-    
-    // Улучшенная обработка ошибок - извлекаем детали ошибки из ответа
-    let errorMessage = 'Ошибка при сохранении пресета модели';
-    
-    // Для API-ошибок, извлекаем детальное сообщение
-    if (error.response) {
-      // Проверяем различные форматы ошибок API
-      if (error.response.data) {
-        if (error.response.data.detail) {
-          // Часто серверы возвращают ошибку в поле detail
-          errorMessage = error.response.data.detail;
-        } else if (error.response.data.error_message) {
-          // Или в поле error_message
-          errorMessage = error.response.data.error_message;
-        } else if (typeof error.response.data === 'string') {
-          // Иногда ошибка может быть просто строкой
-          errorMessage = error.response.data;
-        } else if (error.response.data.message) {
-          // Или в поле message
-          errorMessage = error.response.data.message;
-        }
-      } else if (error.response.status) {
-        // Если нет данных в ответе, но есть статус код
-        switch(error.response.status) {
-          case 400:
-            errorMessage = 'Некорректные данные формы';
-            break;
-          case 401:
-            errorMessage = 'Требуется авторизация';
-            break;
-          case 403:
-            errorMessage = 'Доступ запрещен';
-            break;
-          case 404:
-            errorMessage = 'Ресурс не найден';
-            break;
-          case 409:
-            errorMessage = 'Конфликт данных';
-            break;
-          case 422:
-            errorMessage = 'Ошибка валидации данных';
-            break;
-          case 500:
-            errorMessage = 'Внутренняя ошибка сервера';
-            break;
-          default:
-            errorMessage = `Ошибка сервера (${error.response.status})`;
-        }
-      }
-    } else if (error.message) {
-      // Если это ошибка JS, а не ответ API
-      errorMessage = error.message;
-    }
-    
-    // Показываем пользователю сообщение об ошибке
-    showErrorMessage(errorMessage);
-  } finally {
-    isSubmitting.value = false;
+// Инициализация модального окна
+const initDeactivateModal = () => {
+  const modalEl = document.getElementById('deactivateModelModal');
+  if (modalEl && typeof bootstrap !== 'undefined') {
+    deactivateModal = new bootstrap.Modal(modalEl);
   }
 };
 
-// Редактирование пресета
-const editPreference = (preference) => {
-  editingPreference.value = preference;
-  
-  // Заполняем форму данными выбранного пресета
-  preferenceForm.value = {
-    api_key_id: preference.api_key_id,
-    model: preference.model,
-    description: preference.description,
-    max_tokens: preference.max_tokens.toString(),
-    temperature: preference.temperature,
-    system_prompt: preference.system_prompt || '',
-    is_default: preference.is_default,
-    input_cost: preference.input_cost !== null ? preference.input_cost.toString() : '',
-    output_cost: preference.output_cost !== null ? preference.output_cost.toString() : '',
-    cached_input_cost: preference.cached_input_cost !== null ? preference.cached_input_cost.toString() : ''
-  };
-  
-  showPreferenceForm.value = true;
+
+// Функция для усечения длинного текста
+const truncateText = (text, maxLength) => {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
 };
 
-// Установка пресета по умолчанию
-const setAsDefault = async (preference) => {
+// Переключение статуса модели по умолчанию
+const toggleDefaultModel = async (modelId, providerId) => {
   try {
     loading.value = true;
     
+    // Находим настройки модели
+    const preference = modelStore.modelPreferences.find(pref => 
+      pref.model_id === modelId
+    );
+    
+    if (!preference) {
+      showErrorMessage('Не найдены настройки модели');
+      return;
+    }
+    
+    // Если модель уже по умолчанию, ничего не делаем
+    if (preference.is_default) {
+      return;
+    }
+    
+    // Находим все модели этого провайдера
+    const providerModels = modelStore.modelPreferences.filter(pref =>
+      pref.provider_id === providerId
+    );
+    
+    // Снимаем статус "по умолчанию" с других моделей
+    for (const pref of providerModels) {
+      if (pref.is_default && pref.id !== preference.id) {
+        await modelStore.updateModelPreference(pref.id, {
+          ...pref,
+          is_default: false
+        });
+        
+        // Обновляем состояние в карте настроек
+        if (modelSettingsMap.value[pref.model_id]) {
+          modelSettingsMap.value[pref.model_id].is_default = false;
+        }
+      }
+    }
+    
+    // Устанавливаем текущую модель по умолчанию
     await modelStore.updateModelPreference(preference.id, {
       ...preference,
       is_default: true
     });
     
-    // Обновляем список пресетов
-    await fetchModelPreferences();
-    
-    showSuccessMessage(`Пресет "${preference.description}" установлен по умолчанию`);
-  } catch (error) {
-    console.error('Ошибка при установке пресета по умолчанию:', error);
-    
-    // Извлекаем детали ошибки из ответа
-    let errorMessage = 'Ошибка при установке пресета по умолчанию';
-    
-    if (error.response && error.response.data) {
-      if (error.response.data.detail) {
-        errorMessage = error.response.data.detail;
-      } else if (error.response.data.error_message) {
-        errorMessage = error.response.data.error_message;
-      }
-    } else if (error.message) {
-      errorMessage = error.message;
+    // Обновляем состояние в карте настроек
+    if (modelSettingsMap.value[modelId]) {
+      modelSettingsMap.value[modelId].is_default = true;
     }
     
-    showErrorMessage(errorMessage);
+    showSuccessMessage(`Модель ${modelStore.availableModels.find(m => m.id === modelId)?.name || modelId} установлена по умолчанию`);
+  } catch (error) {
+    console.error('Ошибка при установке модели по умолчанию:', error);
+    showErrorMessage('Не удалось установить модель по умолчанию');
   } finally {
     loading.value = false;
   }
 };
 
-// Открытие модального окна для подтверждения удаления
-const confirmDeletePreference = (preference) => {
-  selectedPreference.value = preference;
-  
-  if (deleteModal) {
-    deleteModal.show();
+
+// Получение списка провайдеров с моделями
+const fetchProviders = async () => {
+  try {
+    // Получаем список провайдеров с моделями
+    await modelStore.fetchAvailableModels();
+
+    // Группируем модели по провайдерам
+    const providersData = {};
+
+    modelStore.availableModels.forEach(model => {
+      if (!providersData[model.provider_id]) {
+        providersData[model.provider_id] = {
+          id: model.provider_id,
+          code: model.provider_code || 'unknown',
+          models: []
+        };
+      }
+
+      providersData[model.provider_id].models.push(model);
+    });
+
+    providers.value = Object.values(providersData);
+
+    // Получаем настройки моделей пользователя
+    await modelStore.fetchModelPreferences();
+
+    // Создаем карту настроек для удобного доступа
+    modelStore.modelPreferences.forEach(pref => {
+      modelSettingsMap.value[pref.model_id] = {
+        id: pref.id,
+        max_tokens: pref.max_tokens,
+        temperature: pref.temperature,
+        system_prompt: pref.system_prompt || '',
+        is_default: pref.is_default
+      };
+    });
+  } catch (error) {
+    console.error('Ошибка при загрузке моделей:', error);
+    showErrorMessage('Не удалось загрузить список моделей');
+  }
+};
+
+// Проверка наличия API ключа для провайдера
+const hasApiKeyForProvider = (providerId) => {
+  return apiKeysStore.getAllKeys.some(key =>
+    key.provider_id === providerId && key.is_active
+  );
+};
+
+// Проверка активности модели
+const isModelActive = (modelId) => {
+  return modelStore.modelPreferences.some(pref => pref.model_id === modelId);
+};
+
+// Проверка, является ли модель моделью по умолчанию
+const isModelDefault = (modelId) => {
+  const preference = modelStore.modelPreferences.find(pref => pref.model_id === modelId);
+  return preference ? preference.is_default : false;
+};
+
+// Переключение активации модели
+const toggleModelActivation = async (model, provider) => {
+  const isActive = isModelActive(model.id);
+
+  if (isActive) {
+    // Деактивация модели - открываем модальное окно подтверждения
+    confirmDeactivateModel(model.id);
   } else {
-    // Резервное подтверждение, если модальное окно не инициализировано
-    if (confirm(`Вы уверены, что хотите удалить пресет "${preference.description}"?`)) {
-      deletePreference();
+    // Активация модели - создаем настройки с дефолтными значениями
+    try {
+      loading.value = true;
+
+      // Проверяем наличие API ключа
+      if (!hasApiKeyForProvider(provider.id)) {
+        showErrorMessage('Для активации модели необходимо добавить API ключ');
+        return;
+      }
+
+      // Создаем базовые настройки для модели
+      const preferenceData = {
+        provider_id: provider.id,
+        model_id: model.id,
+        max_tokens: 2000,
+        temperature: 0.7,
+        system_prompt: '',
+        is_default: false // По умолчанию не устанавливаем как дефолтную
+      };
+
+      // Проверяем, нет ли уже активных моделей этого провайдера
+      const hasActiveModels = modelStore.modelPreferences.some(pref =>
+        pref.provider_id === provider.id
+      );
+
+      // Если это первая активируемая модель для провайдера, делаем её активной по умолчанию
+      if (!hasActiveModels) {
+        preferenceData.is_default = true;
+      }
+
+      // Создаем настройку модели
+      const response = await modelStore.createModelPreference(preferenceData);
+
+      // Добавляем модель в карту настроек
+      modelSettingsMap.value[model.id] = {
+        id: response.id,
+        max_tokens: preferenceData.max_tokens,
+        temperature: preferenceData.temperature,
+        system_prompt: preferenceData.system_prompt,
+        is_default: preferenceData.is_default
+      };
+
+      // Автоматически раскрываем настройки новой модели
+      expandedModels.value.push(model.id);
+
+      showSuccessMessage(`Модель ${model.name} успешно активирована`);
+    } catch (error) {
+      console.error('Ошибка при активации модели:', error);
+      showErrorMessage('Не удалось активировать модель');
+    } finally {
+      loading.value = false;
     }
   }
 };
 
-// Удаление пресета
-const deletePreference = async () => {
-  if (!selectedPreference.value) return;
-  
+// Переключение отображения настроек модели
+const toggleModelSettings = (modelId) => {
+  const index = expandedModels.value.indexOf(modelId);
+  if (index === -1) {
+    expandedModels.value.push(modelId);
+  } else {
+    expandedModels.value.splice(index, 1);
+  }
+};
+
+// Сохранение настроек модели
+const saveModelSettings = async (modelId) => {
   try {
     loading.value = true;
-    
-    // Закрываем модальное окно
-    if (deleteModal) {
-      deleteModal.hide();
+
+    const settings = modelSettingsMap.value[modelId];
+    if (!settings) return;
+
+    // Находим текущие настройки модели
+    const currentPreference = modelStore.modelPreferences.find(pref =>
+      pref.model_id === modelId
+    );
+
+    if (!currentPreference) {
+      showErrorMessage('Не найдены настройки модели');
+      return;
     }
-    
-    await modelStore.deleteModelPreference(selectedPreference.value.id);
-    
-    // Обновляем список пресетов
-    await fetchModelPreferences();
-    
-    showSuccessMessage(`Пресет "${selectedPreference.value.description}" удален`);
-  } catch (error) {
-    console.error('Ошибка при удалении пресета:', error);
-    
-    // Извлекаем детали ошибки из ответа
-    let errorMessage = 'Ошибка при удалении пресета';
-    
-    if (error.response && error.response.data) {
-      if (error.response.data.detail) {
-        errorMessage = error.response.data.detail;
-      } else if (error.response.data.error_message) {
-        errorMessage = error.response.data.error_message;
+
+    // Если устанавливаем модель по умолчанию, убираем этот флаг у других моделей того же провайдера
+    if (settings.is_default && !currentPreference.is_default) {
+      // Сначала находим все модели этого провайдера
+      const providerModels = modelStore.modelPreferences.filter(pref =>
+        pref.provider_id === currentPreference.provider_id && pref.id !== currentPreference.id
+      );
+
+      // Если среди них есть дефолтная, снимаем с нее флаг
+      for (const pref of providerModels) {
+        if (pref.is_default) {
+          await modelStore.updateModelPreference(pref.id, {
+            ...pref,
+            is_default: false
+          });
+
+          // Обновляем состояние в карте настроек, если эта модель есть в нашей карте
+          if (modelSettingsMap.value[pref.model_id]) {
+            modelSettingsMap.value[pref.model_id].is_default = false;
+          }
+        }
       }
-    } else if (error.message) {
-      errorMessage = error.message;
     }
-    
-    showErrorMessage(errorMessage);
+
+    // Обновляем настройки модели
+    await modelStore.updateModelPreference(currentPreference.id, {
+      provider_id: currentPreference.provider_id,
+      model_id: currentPreference.model_id,
+      max_tokens: parseInt(settings.max_tokens),
+      temperature: parseFloat(settings.temperature),
+      system_prompt: settings.system_prompt,
+      is_default: settings.is_default
+    });
+
+    // Закрываем форму настроек после сохранения
+    const index = expandedModels.value.indexOf(modelId);
+    if (index !== -1) {
+      expandedModels.value.splice(index, 1);
+    }
+
+    showSuccessMessage('Настройки модели успешно сохранены');
+  } catch (error) {
+    console.error('Ошибка при сохранении настроек:', error);
+    showErrorMessage('Не удалось сохранить настройки модели');
   } finally {
     loading.value = false;
-    selectedPreference.value = null;
   }
 };
 
-// Отмена формы и сброс состояния
-const cancelForm = () => {
-  resetForm();
+// Открытие модального окна подтверждения деактивации
+const confirmDeactivateModel = (modelId) => {
+  selectedModelToDeactivate.value = modelId;
+
+  if (deactivateModal) {
+    deactivateModal.show();
+  } else {
+    // Резервный вариант, если модальное окно не инициализировано
+    if (confirm('Вы уверены, что хотите деактивировать эту модель? Все ее настройки будут удалены.')) {
+      deactivateModel();
+    }
+  }
 };
 
-// Сброс формы
-const resetForm = () => {
-  preferenceForm.value = {...defaultFormState};
-  editingPreference.value = null;
-  showPreferenceForm.value = false;
+// Деактивация модели
+const deactivateModel = async () => {
+  if (!selectedModelToDeactivate.value) return;
+
+  try {
+    loading.value = true;
+
+    // Скрываем модальное окно
+    if (deactivateModal) {
+      deactivateModal.hide();
+    }
+
+    // Находим настройки модели
+    const modelPreference = modelStore.modelPreferences.find(pref =>
+      pref.model_id === selectedModelToDeactivate.value
+    );
+
+    if (!modelPreference) {
+      showErrorMessage('Не найдены настройки модели');
+      return;
+    }
+
+    // Удаляем настройки модели
+    await modelStore.deleteModelPreference(modelPreference.id);
+
+    // Удаляем модель из списка развернутых
+    const index = expandedModels.value.indexOf(selectedModelToDeactivate.value);
+    if (index !== -1) {
+      expandedModels.value.splice(index, 1);
+    }
+
+    // Удаляем настройки из карты
+    delete modelSettingsMap.value[selectedModelToDeactivate.value];
+
+    // Если это была модель по умолчанию, и у этого провайдера есть другие модели,
+    // устанавливаем первую из них как модель по умолчанию
+    if (modelPreference.is_default) {
+      const providerModels = modelStore.modelPreferences.filter(pref =>
+        pref.provider_id === modelPreference.provider_id && pref.id !== modelPreference.id
+      );
+
+      if (providerModels.length > 0) {
+        await modelStore.updateModelPreference(providerModels[0].id, {
+          ...providerModels[0],
+          is_default: true
+        });
+
+        // Обновляем состояние в карте настроек
+        if (modelSettingsMap.value[providerModels[0].model_id]) {
+          modelSettingsMap.value[providerModels[0].model_id].is_default = true;
+        }
+      }
+    }
+
+    showSuccessMessage('Модель успешно деактивирована');
+  } catch (error) {
+    console.error('Ошибка при деактивации модели:', error);
+    showErrorMessage('Не удалось деактивировать модель');
+  } finally {
+    loading.value = false;
+    selectedModelToDeactivate.value = null;
+  }
 };
 
 // Вспомогательные функции
 
 // Получение имени провайдера
-const getProviderName = (providerId) => {
+const getProviderName = (providerCode) => {
   const providers = {
     'openai': 'OpenAI (ChatGPT)',
     'anthropic': 'Anthropic (Claude)'
   };
-  
-  return providers[providerId] || providerId;
+
+  return providers[providerCode] || providerCode;
 };
 
 // Получение цвета для провайдера
-const getProviderColor = (providerId) => {
+const getProviderColor = (providerCode) => {
   const colors = {
     'openai': '#10a37f', // Зеленый для OpenAI
     'anthropic': '#6b48ff'  // Фиолетовый для Anthropic
   };
-  
-  return colors[providerId] || '#6c757d'; // Серый по умолчанию
+
+  return colors[providerCode] || '#6c757d'; // Серый по умолчанию
 };
 
 // Получение иконки для провайдера
-const getProviderIcon = (providerId) => {
+const getProviderIcon = (providerCode) => {
   const icons = {
     'openai': 'bi-stars',
     'anthropic': 'bi-robot'
   };
-  
-  return icons[providerId] || 'bi-cpu';
-};
 
-// Форматирование даты
-const formatDate = (dateString) => {
-  if (!dateString) return 'Не использовался';
-  
-  const date = new Date(dateString);
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+  return icons[providerCode] || 'bi-cpu';
 };
 
 // Уведомления (можно заменить на компонент уведомлений)
@@ -808,26 +699,40 @@ const showErrorMessage = (message) => {
   alert(`Ошибка: ${message}`); // В реальном приложении можно заменить на компонент уведомлений
 };
 
-// Отслеживаем изменения выбранного API ключа
-watch(() => preferenceForm.value.api_key_id, (newValue) => {
-  if (newValue) {
-    const apiKey = apiKeysStore.getAllKeys.find(key => key.id === newValue);
-    if (apiKey) {
-      // Можно предложить пользователю подходящую модель, но не устанавливать автоматически
-      // В данном случае ничего не делаем, так как решено использовать текстовое поле
-    }
-  }
-});
+// Следим за изменениями в API ключах
+watch(() => apiKeysStore.getAllKeys, () => {
+  // Обновляем список провайдеров, для которых есть API ключи
+  fetchProviders();
+}, { deep: true });
 </script>
 
 <style scoped>
-.text-truncate-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-height: 3em;
+.provider-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1rem;
+}
+
+.model-card {
+  transition: all 0.3s ease;
+}
+
+.model-status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.model-settings-panel {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin-top: 1rem;
 }
 
 /* Улучшенный стиль для range слайдера */
@@ -841,57 +746,65 @@ watch(() => preferenceForm.value.api_key_id, (newValue) => {
   background: #4361ee;
 }
 
-/* Стили для карточек моделей */
+/* Стили для иконки звезды */
+.bi-star-fill.text-warning {
+  color: #ffc107 !important;
+}
+
+.bi-star-fill.text-muted {
+  color: #dee2e6 !important;
+  opacity: 0.5;
+}
+
+/* Улучшенный стиль для карточек моделей */
 .card {
   border-radius: 0.5rem;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease-in-out;
 }
 
-.badge.bg-primary {
-  background-color: #4361ee !important;
+.card.border-primary {
+  box-shadow: 0 0 0 1px rgba(13, 110, 253, 0.25);
 }
 
-/* Стили для иконок провайдеров */
-.model-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 1.2rem;
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.model-actions {
-  display: flex;
-  align-items: center;
-  margin-left: 10px;
+/* Стили для переключателя */
+.form-check-input:checked {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
 }
 
-/* Стили для выпадающего списка фильтрации */
-.dropdown-item.active {
-  background-color: #4361ee;
-}
-
-/* Стили для групп полей формы */
-.form-section-title {
-  color: #4361ee;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #eee;
-}
-
-/* Стили для контейнера с полями стоимости */
-.cost-container {
-  background-color: #f8f9fa;
-  border-color: #e9ecef !important;
+.form-switch .form-check-input {
+  width: 2.5em;
+  margin-left: -2.8em;
 }
 
 /* Улучшения для мобильных устройств */
 @media (max-width: 768px) {
   .model-actions {
-    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
   }
+}
+
+/* Добавьте в секцию <style scoped> */
+.btn-outline-warning {
+  border-color: #ffc107;
+  color: #ffc107;
+}
+
+.btn-outline-warning:hover {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.btn-warning {
+  background-color: #ffc107;
+  border-color: #ffc107;
+  color: #212529;
 }
 </style>

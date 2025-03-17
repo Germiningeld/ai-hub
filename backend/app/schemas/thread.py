@@ -149,6 +149,8 @@ class ThreadSummarySchema(BaseModel):
     updated_at: datetime
     last_message_at: Optional[datetime] = None
     message_count: int = 0
+    max_tokens: Optional[int] = None  # Изменено с max_completion_tokens
+    temperature: Optional[float] = None
     category: Optional[ThreadCategorySchema] = None
 
     class Config:
@@ -179,7 +181,6 @@ class ThreadSummarySchema(BaseModel):
                 }
             }
         }
-
 
 class ThreadSchema(ThreadSummarySchema):
     """Полная схема треда с сообщениями"""
@@ -261,7 +262,7 @@ class ThreadCreateSchema(BaseModel):
     is_archived: Optional[bool] = Field(False, description="Флаг архивации треда")
     initial_message: Optional[str] = Field(None, description="Начальное сообщение пользователя")
     system_prompt: Optional[str] = Field(None, description="Системный промпт для модели (если указан, обновит системный промпт в предпочтениях)")
-    max_completion_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
+    max_tokens: Optional[int] = Field(1000, description="Максимальное количество токенов в ответе")
     temperature: Optional[float] = Field(0.7, description="Температура (случайность) ответа")
 
     class Config:
@@ -277,6 +278,7 @@ class ThreadCreateSchema(BaseModel):
             }
         }
 
+
 class ThreadUpdateSchema(BaseModel):
     """Схема для обновления треда"""
     title: Optional[str] = Field(None, description="Название треда")
@@ -284,7 +286,7 @@ class ThreadUpdateSchema(BaseModel):
     is_pinned: Optional[bool] = Field(None, description="Флаг закрепления треда")
     is_archived: Optional[bool] = Field(None, description="Флаг архивации треда")
     model_preference_id: Optional[int] = Field(None, description="ID предпочтения модели")
-    max_completion_tokens: Optional[int] = Field(None, description="Максимальное количество токенов в ответе")
+    max_tokens: Optional[int] = Field(None, description="Максимальное количество токенов в ответе")
     temperature: Optional[float] = Field(None, description="Температура (случайность) ответа")
 
     class Config:
@@ -293,7 +295,10 @@ class ThreadUpdateSchema(BaseModel):
                 "title": "Интеграция с OpenAI API",
                 "category_id": 2,
                 "is_pinned": True,
-                "is_archived": False
+                "is_archived": False,
+                "model_preference_id": 14,
+                "max_tokens": 1200,
+                "temperature": 0.8
             }
         }
 

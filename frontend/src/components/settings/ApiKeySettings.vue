@@ -147,6 +147,7 @@
         </div>
         
         <div v-else class="api-key-list">
+          <!-- Обновление в карточке API ключа -->
           <div 
             v-for="key in apiKeys" 
             :key="key.id" 
@@ -156,7 +157,10 @@
               <div class="d-flex justify-content-between align-items-center">
                 <div>
                   <h6 class="mb-1">{{ getProviderName(key.provider) }}</h6>
-                  <p class="text-muted mb-0 small">{{ key.name || 'Ключ без названия' }}</p>
+                  <p class="text-muted mb-0">
+                    {{ key.name || 'Ключ без названия' }}
+                    <span class="badge bg-light text-secondary ms-2">{{ key.provider_code }}</span>
+                  </p>
                 </div>
                 <div class="key-actions">
                   <div class="form-check form-switch me-2 d-inline-block">
@@ -191,6 +195,7 @@
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </div>

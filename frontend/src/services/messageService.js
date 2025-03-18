@@ -22,64 +22,35 @@ function adaptMessage(message) {
   return adapted;
 }
 
-/**
- * Адаптирует массив сообщений
- * @param {Array} messages - Массив сообщений
- * @returns {Array} - Адаптированные сообщения
- */
-function adaptMessages(messages) {
-  if (!Array.isArray(messages)) return messages;
-  return messages.map(adaptMessage);
-}
-
-class MessageService {
+export default {
   /**
-   * Добавление сообщения в тред
+   * Отправка сообщения в тред и получение ответа от ассистента
    * @param {string} threadId - ID треда
    * @param {Object} messageData - Данные сообщения
-   * @returns {Promise} - Промис с результатом запроса
-   */
-  async addMessage(threadId, messageData) {
-    try {
-      const response = await api.post(`/threads/${threadId}/messages`, messageData);
-      if (response && response.data) {
-        response.data = adaptMessage(response.data);
-      }
-      return response;
-    } catch (error) {
-      console.error('Error adding message:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Отправка сообщения в тред и получение ответа от AI
-   * @param {string} threadId - ID треда
-   * @param {Object} messageData - Данные сообщения
-   * @param {boolean} useContext - Использовать ли контекст для генерации ответа
+   * @param {boolean} useContext - Использовать ли контекст предыдущих сообщений
    * @returns {Promise} - Промис с результатом запроса
    */
   async sendMessage(threadId, messageData, useContext = true) {
     try {
-      // Преобразование строковых значений в числовые для температуры и max_tokens
-      const formattedData = {
-        content: messageData.content,
-        system_prompt: messageData.system_prompt,
-        temperature: parseFloat(messageData.temperature),
-        max_tokens: parseInt(messageData.max_tokens)
-      };
+      // Проверяем маршрут API в соответствии с документацией
+      const endpoint = `/threads/${threadId}/send`;
       
-      // Удаляем все неопределенные/пустые значения
-      const cleanData = Object.fromEntries(
-        Object.entries(formattedData).filter(([_, v]) => v !== undefined && v !== null)
-      );
+      // Добавляем параметр использования контекста в запрос
+      const params = { use_context: useContext };
       
-      const response = await api.post(`/threads/${threadId}/send`, cleanData, {
-        params: { use_context: useContext }
-      });
+      // Проверяем и преобразуем числовые значения
+      if (messageData.temperature !== undefined) {
+        messageData.temperature = parseFloat(messageData.temperature);
+      }
       
-      // Адаптируем полученное сообщение
-      if (response && response.data) {
+      if (messageData.max_tokens !== undefined) {
+        messageData.max_tokens = parseInt(messageData.max_tokens);
+      }
+      
+      const response = await api.post(endpoint, messageData, { params });
+      
+      // Адаптируем сообщение в ответе
+      if (response.data) {
         response.data = adaptMessage(response.data);
       }
       
@@ -88,100 +59,126 @@ class MessageService {
       console.error('Error sending message:', error);
       throw error;
     }
+  },
+  
+/**
+ * Получение URL для потокового соединения через SSE
+ * @param {string} threadId - ID треда
+ * @param {Object} messageData - Данные сообщения
+ * @param {boolean} useContext - Использовать ли контекст предыдущих сообщений
+ * @returns {string} - URL для создания EventSource
+ */
+getStreamUrl(threadId, messageData, useContext = true) {
+  try {
+    // Создаем базовый URL
+    const baseUrl = `/api/threads/${threadId}/stream`;
+    
+    // Подготавливаем параметры запроса
+    const params = new URLSearchParams();
+    
+    // Добавляем базовые параметры
+    params.append('use_context', useContext);
+    
+    // Добавляем все поля из messageData
+    for (const [key, value] of Object.entries(messageData)) {
+      // Преобразуем значения в строки
+      if (value !== null && value !== undefined) {
+        params.append(key, String(value));
+      }
+    }
+    
+    // Формируем полный URL
+    return `${baseUrl}?${params.toString()}`;
+  } catch (error) {
+    console.error('Error creating stream URL:', error);
+    throw error;
   }
-
+},
+  
   /**
-   * Отправка сообщения с потоковой обработкой ответа
+   * Получение сообщения по ID
+   * @param {string} threadId - ID треда
+   * @param {string} messageId - ID сообщения
+   * @returns {Promise} - Промис с результатом запроса
+   */
+  async getMessage(threadId, messageId) {
+    try {
+      const response = await api.get(`/threads/${threadId}/messages/${messageId}`);
+      
+      // Адаптируем сообщение в ответе
+      if (response.data) {
+        response.data = adaptMessage(response.data);
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('Error getting message:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Создание системного сообщения (для обновления системного промпта)
    * @param {string} threadId - ID треда
    * @param {Object} messageData - Данные сообщения
-   * @param {boolean} useContext - Использовать ли контекст для генерации ответа
-   * @param {number} timeout - Таймаут в секундах
-   * @returns {Promise} - Промис с результатом запроса в виде потока событий
+   * @returns {Promise} - Промис с результатом запроса
    */
-  async streamMessage(threadId, messageData, useContext = true, timeout = 120) {
+  async createSystemMessage(threadId, messageData) {
     try {
-      // Преобразование строковых значений в числовые для температуры и max_tokens
-      const formattedData = {
-        content: messageData.content,
-        system_prompt: messageData.system_prompt,
-        temperature: parseFloat(messageData.temperature),
-        max_tokens: parseInt(messageData.max_tokens)
+      const systemData = {
+        ...messageData,
+        role: 'system'
       };
       
-      // Удаляем все неопределенные/пустые значения
-      const cleanData = Object.fromEntries(
-        Object.entries(formattedData).filter(([_, v]) => v !== undefined && v !== null)
-      );
+      const response = await api.post(`/threads/${threadId}/messages`, systemData);
       
-      return await api.post(`/threads/${threadId}/stream`, cleanData, {
-        params: { 
-          use_context: useContext,
-          timeout: timeout
-        },
-        responseType: 'stream'
-      });
+      // Адаптируем сообщение в ответе
+      if (response.data) {
+        response.data = adaptMessage(response.data);
+      }
+      
+      return response;
     } catch (error) {
-      console.error('Error streaming message:', error);
+      console.error('Error creating system message:', error);
       throw error;
     }
-  }
-
+  },
+  
   /**
-   * Остановка потоковой генерации ответа
+   * Обновление существующего сообщения
    * @param {string} threadId - ID треда
-   * @param {string} messageId - ID сообщения (опционально)
+   * @param {string} messageId - ID сообщения
+   * @param {Object} messageData - Данные для обновления
    * @returns {Promise} - Промис с результатом запроса
    */
-  async stopStreamGeneration(threadId, messageId = null) {
+  async updateMessage(threadId, messageId, messageData) {
     try {
-      const params = messageId ? { message_id: messageId } : {};
-      return await api.post(`/threads/${threadId}/stream/stop`, null, { params });
-    } catch (error) {
-      console.error('Error stopping stream generation:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Подсчет токенов в тексте
-   * @param {string} provider - Провайдер (openai, anthropic и т.д.)
-   * @param {string} model - Модель
-   * @param {string} text - Текст для подсчета токенов
-   * @returns {Promise} - Промис с результатом запроса
-   */
-  async countTokens(provider, model, text) {
-    try {
-      return await api.post('/threads/token-count', {
-        provider,
-        model,
-        text
-      });
-    } catch (error) {
-      console.error('Error counting tokens:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Получение завершения текста без сохранения в тред
-   * @param {Object} completionData - Данные для запроса
-   * @returns {Promise} - Промис с результатом запроса
-   */
-  async getCompletion(completionData) {
-    try {
-      // Преобразование строковых значений в числовые для температуры и max_tokens
-      const formattedData = {
-        ...completionData,
-        temperature: parseFloat(completionData.temperature),
-        max_tokens: parseInt(completionData.max_tokens)
-      };
+      const response = await api.put(`/threads/${threadId}/messages/${messageId}`, messageData);
       
-      return await api.post('/threads/completion', formattedData);
+      // Адаптируем сообщение в ответе
+      if (response.data) {
+        response.data = adaptMessage(response.data);
+      }
+      
+      return response;
     } catch (error) {
-      console.error('Error getting completion:', error);
+      console.error('Error updating message:', error);
       throw error;
     }
+  },
+  
+/**
+ * Остановка потокового получения ответа
+ * @param {string} threadId - ID треда
+ * @returns {Promise} - Промис с результатом запроса
+ */
+async stopMessageStream(threadId) {
+  try {
+    // Используем api.post, который уже настроен на использование правильного базового URL
+    return await api.post(`/threads/${threadId}/stream/stop`);
+  } catch (error) {
+    console.error('Error stopping message stream:', error);
+    throw error;
   }
 }
-
-export default new MessageService();
+};

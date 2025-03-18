@@ -29,24 +29,24 @@ app.add_middleware(
 
 
 # Создаем админа при первом запуске
-@app.on_event("startup")
-async def startup_event():
-    async for db in get_async_session():
-        # Асинхронный запрос
-        user = await db.execute(select(UserOrm).filter(UserOrm.email == settings.DEFAULT_ADMIN_EMAIL))
-        user = user.scalars().first()
-        if not user:
-            # Создаем пользователя-админа
-            new_user = UserOrm(
-                username=settings.DEFAULT_ADMIN_USERNAME,
-                email=settings.DEFAULT_ADMIN_EMAIL,
-                password_hash=get_password_hash(settings.DEFAULT_ADMIN_PASSWORD),
-                is_active=True,
-                is_admin=True
-            )
-            db.add(new_user)
-            await db.commit()
-            print(f"Создан администратор: {settings.DEFAULT_ADMIN_EMAIL}")
+# @app.on_event("startup")
+# async def startup_event():
+#     async for db in get_async_session():
+#         # Асинхронный запрос
+#         user = await db.execute(select(UserOrm).filter(UserOrm.email == settings.DEFAULT_ADMIN_EMAIL))
+#         user = user.scalars().first()
+#         if not user:
+#             # Создаем пользователя-админа
+#             new_user = UserOrm(
+#                 username=settings.DEFAULT_ADMIN_USERNAME,
+#                 email=settings.DEFAULT_ADMIN_EMAIL,
+#                 password_hash=get_password_hash(settings.DEFAULT_ADMIN_PASSWORD),
+#                 is_active=True,
+#                 is_admin=True
+#             )
+#             db.add(new_user)
+#             await db.commit()
+#             print(f"Создан администратор: {settings.DEFAULT_ADMIN_EMAIL}")
 
 
 # Аутентификация и пользователи

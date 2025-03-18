@@ -91,60 +91,42 @@
     <!-- Список сообщений -->
     <template v-else>
       <div class="message-wrapper">
-        <MessageItem 
-          v-for="message in messages" 
+        <MessageItem
+          v-for="message in messages"
           :key="message.id || `message-${message.created_at}`"
           :message="message"
           :model="String(selectedModel)"
-          :isStreamingMode="useStreamingMode.value"
-          @stop-generation="stopStreamGeneration"
         />
       </div>
     </template>
   </div>
 </div>
-
-
-
-
                 <!-- Поле ввода всегда внизу -->
-                <div v-if="activeChatId || isNewThread" class="mt-3">
+                <div v-if="activeChatId" class="mt-3">
                   <!-- Форма отправки сообщения -->
                   <div class="position-relative">
-  <!-- Кнопки сверху справа -->
-  <div class="chat-top-buttons d-none">
-    <button class="btn btn-icon chat-square-btn" title="Прикрепить файл">
-      <i class="bi bi-paperclip"></i>
-    </button>
-    <button class="btn btn-icon chat-square-btn" title="Добавить эмодзи">
-      <i class="bi bi-emoji-smile"></i>
-    </button>
-    <button class="btn btn-icon chat-square-btn" title="Дополнительные опции">
-      <i class="bi bi-three-dots"></i>
-    </button>
-  </div>
+                    <textarea
+                      class="form-control chat-textarea"
+                      placeholder="Введите сообщение... (Enter для отправки, Shift+Enter для переноса строки)"
+                      v-model="newMessage"
+                      ref="messageInput"
+                      rows="3"
+                    ></textarea>
 
-  <textarea
-    class="form-control chat-textarea"
-    placeholder="Введите сообщение... (Enter для отправки, Shift+Enter для переноса строки)"
-    v-model="newMessage"
-    ref="messageInput"
-    rows="3"
-  ></textarea>
-
-  <!-- Кнопка отправки внутри поля ввода -->
-  <div class="chat-input-buttons">
-    <button
-      v-if="newMessage.trim()"
-      class="btn btn-icon chat-input-send-btn"
-      @click="sendMessage"
-      :disabled="isSending"
-      title="Отправить сообщение"
-    >
-      <i class="bi" :class="isSending ? 'bi-hourglass-split' : 'bi-arrow-up'"></i>
-    </button>
-  </div>
-</div>                  
+                    <!-- Кнопки внутри поля ввода -->
+                    <div class="chat-input-buttons">
+                      <button
+                        v-if="newMessage.trim()"
+                        class="btn btn-icon chat-input-send-btn"
+                        @click="sendMessage"
+                        :disabled="isSending"
+                        title="Отправить сообщение"
+                      >
+                        <i class="bi" :class="isSending ? 'bi-hourglass-split' : 'bi-send-fill'"></i>
+                      </button>
+                    </div>
+                  </div>
+                  
                   <!-- Инфа о чате -->
                   <div class="chat-controls d-flex justify-content-between align-items-center mt-2">
                     <div class="d-flex">
@@ -157,21 +139,10 @@
                       ></i>
 
                       <!-- Переключатель контекста -->
-                       <!--
                       <div class="form-check form-switch d-flex align-items-center">
                         <input class="form-check-input me-1" type="checkbox" id="useContextTop" v-model="useContext">
                         <label class="form-check-label small" for="useContextTop">Контекст</label>
                       </div>
-                    -->
-
-                      <!-- Добавьте этот код в ChatView.vue в блок настроек -->
-                       <!--
-                      <div class="form-check form-switch d-flex align-items-center ms-3">
-                        <input class="form-check-input me-1" type="checkbox" id="useStreamingMode" v-model="useStreamingMode">
-                        <label class="form-check-label small" for="useStreamingMode">Потоковый режим</label>
-                      </div>
-                    -->
-
                     </div>
 
                     <!-- Аналитика справа -->
@@ -335,7 +306,6 @@ const quickPrompts = ref([]);
 const categories = ref([]);
 const temperature = ref(0.7);
 const maxTokens = ref('2000');
-const useStreamingMode = ref(false);
 
 // Данные треда
 const messageCount = ref(0);
@@ -347,7 +317,6 @@ const availableModels = ref([]);
 const modelCategories = ref([]); // Группировка моделей по категориям
 const selectedModel = ref('');
 const isLoadingModels = ref(false);
-const selectedCategory = ref(1);
 const modelLoadError = ref(null);
 const modelDetails = ref({}); // Детальная информация о моделях
 const currentProviderId = ref(null);
@@ -832,6 +801,8 @@ onMounted(async () => {
     }
   });
   
+  // Добавляем обработчик изменения размера окна
+  window.addEventListener('resize', handleResize);
 });
 
 // Удаляем обработчик события перед размонтированием компонента
@@ -840,6 +811,8 @@ onBeforeUnmount(() => {
     messageInput.value.removeEventListener('keydown', handleTextareaKeyDown);
   }
   
+  // Удаляем обработчик изменения размера окна
+  window.removeEventListener('resize', handleResize);
 });
 
 
@@ -1036,50 +1009,48 @@ const selectThread = async (threadId, title) => {
   }
 };
 
+// Обработчик создания нового треда
 const createNewThread = async () => {
   try {
     console.log('Создание нового треда');
-    
     // Очищаем текущий тред и сообщения
     activeChatId.value = null;
     messages.value = [];
-    
-    // ВСЕГДА показываем настройки при создании нового треда
-    showSettings.value = true;
+    newMessage.value = '';
     
     // Устанавливаем состояние нового треда
     chatTitle.value = 'Новая беседа';
     isNewThread.value = true;
     
-    // Сбрасываем счетчики
-    messageCount.value = 0;
-    totalTokens.value = 0;
-    
-    // Сбрасываем настройки к значениям по умолчанию
-    temperature.value = 0.7;
-    maxTokens.value = '2000';
-    systemPrompt.value = '';
-    newMessage.value = ''; // Очищаем поле ввода сообщения
-
-    // Устанавливаем category_id по умолчанию
-    selectedCategory.value = 1;
-
     // Убедимся, что у нас есть доступные модели
     if (availableModels.value.length === 0) {
       await loadAvailableModels();
+      if (availableModels.value.length === 0) {
+        // Если нет доступных моделей, показываем сообщение об ошибке
+        alert('Нет доступных моделей. Пожалуйста, добавьте API ключи в настройках.');
+        return;
+      }
     }
     
-    // Используем модель по умолчанию
-    const defaultModel = availableModels.value.find(m => m.is_default) || 
-                         availableModels.value[0];
+    // Используем доступную модель
+    const modelToUse = availableModels.value.find(m => m.id === selectedModel.value) || 
+                      availableModels.value[0];
     
-    if (defaultModel) {
-      selectedModel.value = defaultModel.code;
-      currentProviderId.value = defaultModel.provider_id;
+    // Устанавливаем модель по умолчанию, если не выбрана
+    if (!selectedModel.value && modelToUse) {
+      selectedModel.value = modelToUse.id;
     }
+    
+    // Показываем настройки для нового треда
+    showSettings.value = true;
     
     // Обновляем URL, удаляя параметр threadId
     router.push({ query: {} });
+    
+    // Сбрасываем счетчики
+    messageCount.value = 0;
+    totalTokens.value = 0;
+    totalCost.value = 0;
     
     // На мобильных устройствах скрываем список тредов
     if (window.innerWidth < 768) {
@@ -1096,7 +1067,7 @@ const createNewThread = async () => {
     
   } catch (error) {
     console.error('Ошибка при создании треда:', error);
-    alert('Произошла ошибка при подготовке нового треда');
+    alert('Ошибка при подготовке нового треда: ' + (error.message || 'Неизвестная ошибка'));
   }
 };
 
@@ -1131,28 +1102,115 @@ watch(newMessage, () => {
   });
 });
 
-// Отправка сообщения
+// Отправка сообщения (фрагмент кода с обновленной логикой)
 const sendMessage = async () => {
   if (!newMessage.value.trim() || isSending.value) return;
   
   try {
-    // Проверяем режим отправки (потоковый или обычный)
-    if (useStreamingMode.value) {
-      // Используем потоковый режим
-      await sendMessageStream();
-    } else {
-      // Используем обычный режим
-      await sendMessageRegular();
+    isSending.value = true;
+    console.log('Отправка сообщения...');
+    
+    // Проверяем, нужно ли создать новый тред
+    if (isNewThread.value) {
+      // Создаем новый тред перед отправкой первого сообщения
+      await createThreadOnServer();
     }
+    
+    // Создаем сообщение пользователя
+    const userMessage = {
+      id: `temp-${Date.now()}`, // Временный ID для нового сообщения
+      content: newMessage.value,
+      role: "user",
+      created_at: new Date().toISOString()
+    };
+    
+    // Добавляем в локальный массив
+    messages.value.push(userMessage);
+    
+    // Очищаем поле ввода
+    const messageText = newMessage.value;
+    newMessage.value = '';
+    adjustTextAreaHeight();
+    
+    // Прокручиваем до последнего сообщения
+    await nextTick();
+    scrollToBottom();
+    
+    // После первого сообщения этот тред уже не считается новым
+    if (isNewThread.value) {
+      isNewThread.value = false;
+    }
+    
+    // Проверяем, нужно ли обновить системный промпт
+    await updateSystemPrompt();
+    
+    console.log("sendMessage - selectedModel.value:", selectedModel.value);
+    
+    // Получаем информацию о выбранной модели
+    const selectedModelData = availableModels.value.find(
+      model => model.code === selectedModel.value
+    );
+
+    console.log("sendMessage - найденная модель:", selectedModelData);
+
+    if (!selectedModelData) {
+      throw new Error('Выбранная модель не найдена в списке доступных моделей');
+    }
+    
+    // Данные для запроса
+    const requestData = {
+      content: messageText,
+      system_prompt: systemPrompt.value || selectedModelData.system_prompt || '',
+      temperature: parseFloat(temperature.value || selectedModelData.temperature || 0.7),
+      max_tokens: parseInt(selectedModelData.max_tokens || 2000),
+      model_id: selectedModelData.model_id,
+      provider_id: selectedModelData.provider_id,
+      model_code: selectedModelData.code,
+      provider_code: selectedModelData.provider_code,
+      model_preference_id: selectedModelData.id, // ID предпочтения модели
+      use_context: useContext.value
+    };
+    
+    console.log('Отправка запроса к API:', requestData);
+    
+    // Отправляем запрос к API
+    const response = await messageService.sendMessage(
+      activeChatId.value,
+      requestData,
+      useContext.value
+    );
+    
+    console.log('Получен ответ от API:', response.data);
+    
+    // Добавляем ответ ассистента в массив
+    const assistantMessage = response.data;
+    
+    // Убедимся, что у сообщения есть ID
+    if (!assistantMessage.id) {
+      assistantMessage.id = `assistant-${Date.now()}`;
+    }
+    
+    messages.value.push(assistantMessage);
+
+    // Обновляем статистику
+    messageCount.value = messages.value.length;
+
+    // Обновленная обработка токенов (без стоимости)
+    if (assistantMessage.tokens_total) {
+      totalTokens.value += assistantMessage.tokens_total;
+    } else if (assistantMessage.tokens_input || assistantMessage.tokens_output) {
+      totalTokens.value += (assistantMessage.tokens_input || 0) + (assistantMessage.tokens_output || 0);
+    } else if (assistantMessage.tokens) {
+      // Для обратной совместимости
+      totalTokens.value += assistantMessage.tokens;
+    }
+    
+    // Прокручиваем до последнего сообщения
+    await nextTick();
+    scrollToBottom();
+    
   } catch (error) {
     console.error('Ошибка при отправке сообщения:', error);
-    
-    // Общая обработка ошибок для обоих режимов
-    // Удаляем индикатор загрузки, если он есть
-    const loadingIndex = messages.value.findIndex(msg => msg.isLoading === true);
-    if (loadingIndex !== -1) {
-      messages.value.splice(loadingIndex, 1);
-    }
     
     // Проверяем тип ошибки
     let errorMessage = 'Произошла ошибка при получении ответа. Пожалуйста, попробуйте еще раз.';
@@ -1205,169 +1263,6 @@ const sendMessage = async () => {
     });
   }
 };
-
-// Обычная отправка сообщения (не потоковая)
-const sendMessageRegular = async () => {
-  if (!newMessage.value.trim() || isSending.value) return;
-  
-  try {
-    isSending.value = true;
-    console.log('Отправка сообщения (обычный режим)...');
-    
-    // Проверяем, нужно ли создать новый тред
-    if (isNewThread.value) {
-      // Создаем новый тред перед отправкой первого сообщения
-      await createThreadOnServer();
-    }
-    
-    // Создаем сообщение пользователя
-    const userMessage = {
-      id: `temp-${Date.now()}`, // Временный ID для нового сообщения
-      content: newMessage.value,
-      role: "user",
-      created_at: new Date().toISOString()
-    };
-    
-    // Добавляем в локальный массив
-    messages.value.push(userMessage);
-    
-    // Очищаем поле ввода
-    const messageText = newMessage.value;
-    newMessage.value = '';
-    adjustTextAreaHeight();
-    
-    // Прокручиваем до последнего сообщения
-    await nextTick();
-    scrollToBottom();
-    
-    // После первого сообщения этот тред уже не считается новым
-    if (isNewThread.value) {
-      isNewThread.value = false;
-    }
-    
-    // Проверяем, нужно ли обновить системный промпт
-    await updateSystemPrompt();
-    
-    console.log("sendMessageRegular - selectedModel.value:", selectedModel.value);
-    
-    // Получаем информацию о выбранной модели
-    const selectedModelData = availableModels.value.find(
-      model => model.code === selectedModel.value
-    );
-
-    console.log("sendMessageRegular - найденная модель:", selectedModelData);
-
-    if (!selectedModelData) {
-      throw new Error('Выбранная модель не найдена в списке доступных моделей');
-    }
-    
-    // Добавляем индикатор загрузки
-    const loadingMessageId = `loading-${Date.now()}`;
-    const loadingMessage = {
-      id: loadingMessageId,
-      role: 'assistant',
-      content: 'Генерирую ответ...',
-      created_at: new Date().toISOString(),
-      isLoading: true
-    };
-    
-    messages.value.push(loadingMessage);
-    await nextTick();
-    scrollToBottom();
-    
-    // Данные для запроса
-    const requestData = {
-      content: messageText,
-      system_prompt: systemPrompt.value || selectedModelData.system_prompt || '',
-      temperature: parseFloat(temperature.value || selectedModelData.temperature || 0.7),
-      max_tokens: parseInt(maxTokens.value || selectedModelData.max_tokens || 2000),
-      model_id: selectedModelData.model_id,
-      provider_id: selectedModelData.provider_id,
-      model_code: selectedModelData.code,
-      provider_code: selectedModelData.provider_code,
-      model_preference_id: selectedModelData.id, // ID предпочтения модели
-      use_context: useContext.value
-    };
-    
-    console.log('Отправка запроса к API:', requestData);
-    
-    // Отправляем запрос к API
-    const response = await messageService.sendMessage(
-      activeChatId.value,
-      requestData,
-      useContext.value
-    );
-    
-    console.log('Получен ответ от API:', response.data);
-    
-    // Находим и удаляем индикатор загрузки
-    const loadingIndex = messages.value.findIndex(msg => msg.id === loadingMessageId);
-    if (loadingIndex !== -1) {
-      messages.value.splice(loadingIndex, 1);
-    }
-    
-    // Добавляем ответ ассистента в массив
-    const assistantMessage = response.data;
-    
-    // Убедимся, что у сообщения есть ID
-    if (!assistantMessage.id) {
-      assistantMessage.id = `assistant-${Date.now()}`;
-    }
-    
-    messages.value.push(assistantMessage);
-
-    // Обновляем статистику
-    messageCount.value = messages.value.length;
-
-    // Обновленная обработка токенов (без стоимости)
-    if (assistantMessage.tokens_total) {
-      totalTokens.value += assistantMessage.tokens_total;
-    } else if (assistantMessage.tokens_input || assistantMessage.tokens_output) {
-      totalTokens.value += (assistantMessage.tokens_input || 0) + (assistantMessage.tokens_output || 0);
-    } else if (assistantMessage.tokens) {
-      // Для обратной совместимости
-      totalTokens.value += assistantMessage.tokens;
-    }
-    
-    // Обновляем заголовок треда, если это первое сообщение
-    if (chatTitle.value === 'Новая беседа' && messageText.length > 0) {
-      // Используем первые 30 символов сообщения пользователя как заголовок
-      const newTitle = messageText.substring(0, 30) + (messageText.length > 30 ? '...' : '');
-      chatTitle.value = newTitle;
-      
-      // Обновляем заголовок треда на сервере
-      try {
-        await threadService.updateThread(activeChatId.value, { title: newTitle });
-      } catch (titleError) {
-        console.error('Ошибка при обновлении заголовка треда:', titleError);
-      }
-    }
-    
-    // Прокручиваем до последнего сообщения
-    await nextTick();
-    scrollToBottom();
-    
-  } catch (error) {
-    console.error('Ошибка при отправке сообщения в обычном режиме:', error);
-    throw error; // Прокидываем ошибку выше для общей обработки
-  }
-};
-
-
-// Функция для получения заголовка авторизации
-const getAuthHeader = () => {
-  // Получаем токен из localStorage или другого хранилища
-  const token = localStorage.getItem('auth_token');
-  if (token) {
-    return {
-      'Authorization': `Bearer ${token}`
-    };
-  }
-  return {};
-};
-
-
-
 
 // Метод для обновления системного промпта
 const updateSystemPrompt = async () => {
@@ -1453,8 +1348,11 @@ const updateSystemPrompt = async () => {
 // Обновленная функция createThreadOnServer
 const createThreadOnServer = async () => {
   try {
+    console.log('Создание нового треда на сервере');
+    
     // Убедимся, что у нас есть выбранная модель
     if (!selectedModel.value && availableModels.value.length > 0) {
+      // Выбираем модель по умолчанию или первую доступную
       const defaultModel = availableModels.value.find(model => model.is_default);
       selectedModel.value = defaultModel 
         ? defaultModel.code
@@ -1478,8 +1376,8 @@ const createThreadOnServer = async () => {
       provider_code: selectedModelData.provider_code,
       model_id: selectedModelData.model_id,
       model_code: selectedModelData.code,
-      model_preferences_id: selectedModelData.id,
-      category_id: selectedCategory.value,
+      model_preference_id: selectedModelData.id, // ID предпочтения модели
+      category_id: null,
       is_pinned: false,
       is_archived: false,
       system_prompt: systemPrompt.value || selectedModelData.system_prompt || '',
@@ -1487,7 +1385,7 @@ const createThreadOnServer = async () => {
       temperature: parseFloat(temperature.value || selectedModelData.temperature || 0.7)
     };
     
-    console.log('Создание треда с данными:', threadData);
+    console.log('Данные для создания треда:', threadData);
     
     // Создаем тред на сервере
     const response = await threadService.createThread(threadData);
@@ -1536,6 +1434,10 @@ const openPromptLibrary = () => {
   router.push('/prompts');
 };
 
+// Форматирование стоимости
+const formatCost = (cost) => {
+  return `$${cost.toFixed(4)}`;
+};
 
 // Прокрутка к последнему сообщению
 const scrollToBottom = () => {
@@ -1547,8 +1449,12 @@ const scrollToBottom = () => {
   }
 };
 
-
-
+// Обработчик изменения размера окна
+const handleResize = () => {
+  if (activeChatId.value && window.innerWidth < 768) {
+    showThreadList.value = false;
+  }
+};
 
 </script>
 
@@ -1607,42 +1513,49 @@ const scrollToBottom = () => {
 }
 
 .chat-textarea {
-  padding-right: 50px;
+  padding-right: 80px; /* Место для кнопок */
   resize: none;
-  border-radius: 12px;
+  border-radius: 20px;
+  transition: all 0.2s;
 }
 
-/* Позиционирование кнопок в верхней части textarea */
 .chat-input-buttons {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+ position: absolute;
+ right: 10px;
+ bottom: 10px;
+ display: flex;
+ gap: 5px;
 }
 
-/* Стиль для кнопки отправки */
+.btn-icon {
+ width: 32px;
+ height: 32px;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ border-radius: 50%;
+ padding: 0;
+}
+
+.chat-input-prompt-btn {
+ color: #6c757d;
+ background: none;
+ border: none;
+}
+
+.chat-input-prompt-btn:hover {
+ color: #4361ee;
+ background-color: rgba(67, 97, 238, 0.1);
+}
+
 .chat-input-send-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background-color: #0d6efd;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  transition: background-color 0.2s;
+ color: #fff;
+ background-color: #4361ee;
+ border: none;
 }
 
 .chat-input-send-btn:hover {
-  background-color: #0b5ed7;
-}
-
-.chat-input-send-btn:disabled {
-  background-color: #9fc3fe;
-  cursor: not-allowed;
+ background-color: #3a56d4;
 }
 
 /* Стили для настроек чата */
@@ -1650,9 +1563,30 @@ const scrollToBottom = () => {
   background-color: #fff;
 }
 
-/* Стиль для статистики чата */
+/* Улучшенный стиль для статистики чата */
 .chat-analytics {
   white-space: nowrap;
+}
+
+/* Стиль для карточек моделей в списке */
+.model-badge {
+  font-size: 0.7em;
+  padding: 0.15em 0.4em;
+  margin-left: 0.5em;
+  vertical-align: middle;
+}
+
+/* Индикатор доступных возможностей модели */
+.model-capabilities {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.capability-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
 }
 
 /* Адаптивность для мобильных устройств */
@@ -1666,19 +1600,5 @@ const scrollToBottom = () => {
     z-index: 1040;
     background-color: #fff;
   }
-}
-
-.stop-generation-btn {
-  margin-left: 10px;
-  background-color: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 0.75rem;
-}
-
-.stop-generation-btn:hover {
-  background-color: #c82333;
 }
 </style>

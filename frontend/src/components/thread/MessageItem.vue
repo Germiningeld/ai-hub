@@ -4,8 +4,7 @@
     :class="{
       'message-user': message.role === 'user',
       'message-assistant': message.role === 'assistant',
-      'message-system': message.role === 'system',
-      'message-loading': message.isLoading
+      'message-system': message.role === 'system'
     }"
   >
     <!-- Аватар и роль -->
@@ -20,25 +19,9 @@
         <span class="message-role">{{ roleName }}</span>
         <span class="message-time ms-2 text-muted small">{{ formatTime(message.created_at) }}</span>
 
-        <!-- Индикатор загрузки для сообщения ассистента -->
-        <template v-if="message.isLoading">
-          <div class="ms-2">
-            <div class="spinner-border spinner-border-sm text-primary" role="status">
-              <span class="visually-hidden">Загрузка...</span>
-            </div>
-          </div>
-        </template>
-
-        <!-- Действия для сообщения -->
-        <div
-          v-if="!message.isLoading && message.role !== 'system'"
-          class="message-actions ms-auto"
-        >
-          <button
-            class="btn btn-sm btn-link p-0 me-2"
-            @click="copyToClipboard"
-            title="Копировать"
-          >
+        <!-- Действия для сообщения (видимы при наведении) -->
+        <div class="message-actions ms-auto" v-if="message.role !== 'system'">
+          <button class="btn btn-sm btn-link p-0 me-2" @click="copyToClipboard">
             <i class="bi bi-clipboard"></i>
           </button>
 
@@ -46,7 +29,6 @@
             v-if="message.role === 'user'"
             class="btn btn-sm btn-link p-0 me-2"
             @click="editMessage"
-            title="Редактировать"
           >
             <i class="bi bi-pencil"></i>
           </button>
@@ -55,7 +37,6 @@
             v-if="message.role === 'assistant'"
             class="btn btn-sm btn-link p-0 me-2"
             @click="saveAsPrompt"
-            title="Сохранить как промпт"
           >
             <i class="bi bi-bookmark"></i>
           </button>
@@ -64,7 +45,6 @@
             v-if="message.role === 'assistant'"
             class="btn btn-sm btn-link p-0"
             @click="regenerateMessage"
-            title="Перегенерировать"
           >
             <i class="bi bi-arrow-clockwise"></i>
           </button>
@@ -72,34 +52,11 @@
       </div>
 
       <!-- Текст сообщения с форматированием -->
-      <div
-        v-if="message.isLoading && message.content.trim() === ''"
-        class="message-text message-text-loading"
-      >
-        <div class="typing-indicator">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
+      <div class="message-text" v-html="formattedContent"></div>
 
-        <button
-          v-if="isStreamingMode"
-          class="btn btn-sm btn-danger stop-generation-btn ms-3"
-          @click="stopGeneration"
-          title="Остановить генерацию"
-        >
-          <i class="bi bi-stop-fill"></i> Остановить
-        </button>
-      </div>
-      <div
-        v-else
-        class="message-text"
-        v-html="formattedContent"
-      ></div>
-
-      <!-- Метаданные для сообщений ассистента -->
-      <div
-        v-if="message.role === 'assistant' && messageTokens && !message.isLoading"
+      <!-- Метаданные для сообщений ассистента (только токены, убираем цену) -->
+      <div 
+        v-if="message.role === 'assistant' && messageTokens" 
         class="message-meta mt-2 small text-muted"
       >
         <span>{{ messageTokens }} токенов</span>
@@ -107,128 +64,124 @@
     </div>
   </div>
 </template>
-
 <script setup>
-import { computed, getCurrentInstance } from 'vue';
+import { computed } from 'vue';
 
-// Пропсы с улучшенной типизацией и значениями по умолчанию
+// Пропсы
 const props = defineProps({
   message: {
     type: Object,
     required: true,
     default: () => ({
-      id: '',
+      id: 'default',
       role: 'system',
       content: '',
-      created_at: new Date().toISOString(),
-      isLoading: false
+      created_at: new Date().toISOString()
     })
   },
   model: {
-    type: [String, Number],
+    type: [String, Number], // Поддерживаем как строку, так и число
     default: ''
-  },
-  isStreamingMode: Boolean
+  }
 });
 
-// Мемоизированные вычисляемые свойства
+// Определение иконки аватара в зависимости от роли
 const avatarIcon = computed(() => {
-  const roleIcons = {
+  const role = props.message?.role || 'system';
+  const model = String(props.model || ''); // Преобразуем в строку
+  
+  const icons = {
     'user': 'bi-person-circle',
-    'assistant': String(props.model).includes('gpt') ? 'bi-stars' : 'bi-robot',
+    'assistant': typeof model === 'string' && model.includes('gpt') ? 'bi-stars' : 'bi-robot',
     'system': 'bi-gear'
   };
-
-  return roleIcons[props.message?.role] || 'bi-chat';
+  
+  return icons[role] || 'bi-chat';
 });
 
+// Определение отображаемого имени роли
 const roleName = computed(() => {
-  const roleNames = {
+  const role = props.message?.role || 'system';
+  
+  const names = {
     'user': 'Вы',
     'assistant': 'Ассистент',
     'system': 'Система'
   };
-
-  return roleNames[props.message?.role] || 'Неизвестно';
+  
+  return names[role] || 'Неизвестно';
 });
 
+// Форматированное содержимое (обработка текста для отображения)
 const formattedContent = computed(() => {
   const content = props.message?.content || '';
-
-  return content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-    .replace(/\n/g, '<br>');
+  
+  // Базовая обработка переносов строк
+  return content.replace(/\n/g, '<br>');
 });
 
+// Получение токенов из разных полей модели
 const messageTokens = computed(() => {
-  const {
-    tokens_total,
-    tokens,
-    tokens_input,
-    tokens_output
-  } = props.message || {};
-
-  return tokens_total
-    || tokens
-    || ((tokens_input || 0) + (tokens_output || 0))
-    || null;
+  const msg = props.message || {};
+  
+  // Пробуем получить токены из разных полей модели
+  if (msg.tokens_total) {
+    return msg.tokens_total;
+  } else if (msg.tokens) {
+    return msg.tokens;
+  } else if (msg.tokens_input || msg.tokens_output) {
+    return (msg.tokens_input || 0) + (msg.tokens_output || 0);
+  }
+  return null;
 });
 
-// Функции с перемещением общей логики наверх
+// Форматирование времени
 const formatTime = (dateString) => {
   if (!dateString) return '';
-
+  
   try {
-    return new Date(dateString).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    console.error('Ошибка при форматировании времени:', e);
     return '';
   }
 };
 
-// Emit для остановки генерации
-const emit = defineEmits(['stop-generation']);
-
-// Методы с минимальной логикой
+// Копирование текста сообщения в буфер обмена
 const copyToClipboard = () => {
   const content = props.message?.content || '';
-
+  
   navigator.clipboard.writeText(content)
-    .then(() => alert('Текст скопирован в буфер обмена'))
-    .catch(err => alert('Не удалось скопировать текст: ' + err.message));
+    .then(() => {
+      alert('Текст скопирован в буфер обмена');
+    })
+    .catch(err => {
+      console.error('Ошибка при копировании текста:', err);
+      alert('Не удалось скопировать текст: ' + err.message);
+    });
 };
 
+// Редактирование сообщения (только для пользовательских сообщений)
 const editMessage = () => {
+  // Здесь будет логика редактирования сообщения
   alert('Функция редактирования будет доступна в ближайшее время');
 };
 
+// Сохранение ответа ассистента как промпта
 const saveAsPrompt = () => {
+  // Здесь будет логика сохранения в библиотеку промптов
   alert('Функция сохранения промпта будет доступна в ближайшее время');
 };
 
+// Повторная генерация ответа ассистента
 const regenerateMessage = () => {
-  const parentContext = getCurrentInstance().parent;
-
-  if (parentContext?.regenerateMessage) {
-    parentContext.regenerateMessage(props.message.id);
-  } else {
-    alert('Функция регенерации ответа будет доступна в ближайшее время');
-  }
-};
-
-const stopGeneration = () => {
-  emit('stop-generation', props.message.thread_id);
+  // Здесь будет логика регенерации ответа
+  alert('Функция регенерации ответа будет доступна в ближайшее время');
 };
 </script>
 
 <style scoped>
-/* Основные стили без изменений */
 .message-item {
   display: flex;
   margin-bottom: 1.5rem;
@@ -271,12 +224,6 @@ const stopGeneration = () => {
   line-height: 1.5;
 }
 
-.message-text-loading {
-  min-height: 24px;
-  display: flex;
-  align-items: center;
-}
-
 .message-actions {
   opacity: 0;
   transition: opacity 0.2s;
@@ -290,6 +237,7 @@ const stopGeneration = () => {
   opacity: 0.7;
 }
 
+/* Стилизация кнопок действий */
 .btn-link {
   color: #6c757d;
   text-decoration: none;
@@ -297,40 +245,5 @@ const stopGeneration = () => {
 
 .btn-link:hover {
   color: #4361ee;
-}
-
-/* Анимация печатающего индикатора без изменений */
-.typing-indicator {
-  display: inline-flex;
-  align-items: center;
-}
-
-.typing-indicator span {
-  height: 8px;
-  width: 8px;
-  margin: 0 2px;
-  background-color: #4361ee;
-  border-radius: 50%;
-  display: inline-block;
-  opacity: 0.7;
-  animation: typing 1s infinite;
-}
-
-.typing-indicator span:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes typing {
-  0% { transform: translateY(0px); }
-  50% { transform: translateY(-5px); }
-  100% { transform: translateY(0px); }
 }
 </style>

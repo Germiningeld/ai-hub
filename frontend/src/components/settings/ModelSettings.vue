@@ -101,10 +101,12 @@
                             <strong>{{ modelSettingsMap[model.id]?.temperature }}</strong>
                           </div>
                         </div>
+                        <!--
                         <div v-if="modelSettingsMap[model.id]?.system_prompt" class="mb-1">
                           <span class="text-muted me-1">Системный промпт:</span>
                           <span class="small">{{ truncateText(modelSettingsMap[model.id]?.system_prompt, 100) }}</span>
                         </div>
+                        -->
                       </div>
 
                       </div>
@@ -191,6 +193,7 @@
                         </div>
 
                         <!-- Системный промпт -->
+                         <!--
                         <div class="mb-3">
                           <label :for="`model-${model.id}-system-prompt`" class="form-label">Системный промпт (необязательно)</label>
                           <textarea
@@ -204,6 +207,7 @@
                             Системный промпт задаёт поведение и тон модели при взаимодействии
                           </div>
                         </div>
+                      -->
 
                         <!-- Модель по умолчанию -->
                         <div class="form-check mb-3">

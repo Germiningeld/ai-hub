@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 дней
 
     # Данные администратора по умолчанию
-    DEFAULT_ADMIN_EMAIL: str
-    DEFAULT_ADMIN_PASSWORD: str
-    DEFAULT_ADMIN_USERNAME: str
+    # DEFAULT_ADMIN_EMAIL: str
+    # DEFAULT_ADMIN_PASSWORD: str
+    # DEFAULT_ADMIN_USERNAME: str
 
     @property
     def DATABASE_ASYNCPG(self) -> str:

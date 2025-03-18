@@ -102,7 +102,7 @@
   </div>
 </div>
                 <!-- Поле ввода всегда внизу -->
-                <div v-if="activeChatId" class="mt-3">
+                <div v-if="activeChatId || isNewThread" class="mt-3">
                   <!-- Форма отправки сообщения -->
                   <div class="position-relative">
                     <textarea

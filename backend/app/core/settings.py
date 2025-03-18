@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     APP_ROOT_PATH: str = ""
 
     # CORS настройки
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000"
 
     @field_validator('ALLOWED_ORIGINS')
     def parse_allowed_origins(cls, v):
@@ -28,6 +28,10 @@ class Settings(BaseSettings):
         return v
 
     # Настройки базы данных
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    POSTGRES_DB: str
+
     DATABASE_URL: str
 
     # Настройки безопасности
@@ -43,11 +47,11 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_ASYNCPG(self) -> str:
-        return f"postgresql+asyncpg:{self.DATABASE_URL}"
+        return f"postgresql+asyncpg://{self.DATABASE_URL}"
 
     @property
     def DATABASE(self) -> str:
-        return f"postgresql:{self.DATABASE_URL}"
+        return f"postgresql://{self.DATABASE_URL}"
 
     @property
     def ORIGINS(self) -> List[str]:

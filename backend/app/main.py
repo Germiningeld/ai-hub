@@ -71,4 +71,5 @@ app.include_router(model_preferences.router, prefix="/api/model_preferences", ta
 app.include_router(statistics.router, prefix="/api/statistics", tags=["statistics"])
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=4000
+                , reload=True)

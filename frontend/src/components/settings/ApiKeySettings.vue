@@ -41,21 +41,22 @@
             <div class="mb-3">
               <label for="keyProvider" class="form-label">Провайдер</label>
               <select 
-                id="keyProvider" 
-                name="provider"
-                class="form-select" 
-                v-model="newKey.provider"
-                required
-              >
-                <option value="" disabled>Выберите провайдера</option>
-                <option 
-                  v-for="provider in availableProviders" 
-                  :key="provider.id" 
-                  :value="provider.id"
-                >
-                  {{ provider.name }}
-                </option>
-              </select>
+  id="keyProvider" 
+  name="provider"
+  class="form-select" 
+  v-model="newKey.provider"
+  @change="providerChanged(newKey.provider)"
+  required
+>
+  <option value="" disabled>Выберите провайдера</option>
+  <option 
+    v-for="provider in availableProviders" 
+    :key="provider.id" 
+    :value="provider.id"
+  >
+    {{ provider.name }}
+  </option>
+</select>
               <div class="form-text" v-if="newKey.provider">
                 {{ getProviderDescription(newKey.provider) }}
               </div>
@@ -229,6 +230,8 @@
 </template>
 
 <script setup>
+
+
 import { ref, onMounted, computed, nextTick } from 'vue';
 import { useApiKeysStore } from '@/stores/apiKeys';
 import { setupAutoHideScrollbar } from '@/utils/scrollbarUtil';
@@ -245,14 +248,15 @@ const newKey = ref({
   provider: '',
   name: '',
   api_key: '',
-  is_active: true
+  is_active: true,
+  provider_id: null // Добавляем поле для ID провайдера из базы данных
 });
 const selectedKey = ref(null);
 const showAddKeyForm = ref(false);
 let deleteModal = null;
 
 // Получаем список доступных провайдеров
-const availableProviders = apiKeysStore.getAvailableProviders();
+const availableProviders = ref([]);
 
 // Вычисляем валидность формы
 const isFormValid = computed(() => {
@@ -261,6 +265,10 @@ const isFormValid = computed(() => {
 
 // При монтировании компонента загружаем ключи и настраиваем скроллбар
 onMounted(async () => {
+  // Загружаем список провайдеров сначала
+  await fetchProviders();
+  
+  // Затем загружаем API ключи
   await fetchApiKeys();
   
   // Инициализируем скроллбар после загрузки данных
@@ -277,6 +285,24 @@ onMounted(async () => {
   });
 });
 
+// Загрузка списка провайдеров
+const fetchProviders = async () => {
+  try {
+    await apiKeysStore.fetchProviders();
+    availableProviders.value = apiKeysStore.availableProviders;
+    
+    // Если список пуст, инициализируем значениями по умолчанию
+    if (availableProviders.value.length === 0) {
+      apiKeysStore.initDefaultProviders();
+      availableProviders.value = apiKeysStore.availableProviders;
+    }
+  } catch (error) {
+    console.error('Ошибка при загрузке списка провайдеров:', error);
+    // В случае ошибки используем метод для получения стандартного набора провайдеров
+    availableProviders.value = apiKeysStore.getAvailableProviders();
+  }
+};
+
 // Загрузка API ключей
 const fetchApiKeys = async () => {
   try {
@@ -287,11 +313,24 @@ const fetchApiKeys = async () => {
   }
 };
 
+// Обработчик изменения выбранного провайдера
+const providerChanged = (providerId) => {
+  // Находим выбранный провайдер
+  const provider = availableProviders.value.find(p => p.id === providerId);
+  if (provider) {
+    // Устанавливаем provider_id, который будет отправляться на сервер
+    newKey.value.provider_id = provider.providerId;
+  }
+};
+
 // Добавление нового API ключа
 const addApiKey = async () => {
   try {
     // Проверяем, что форма заполнена корректно
     if (!isFormValid.value) return;
+    
+    // Находим выбранный провайдер и добавляем его ID
+    providerChanged(newKey.value.provider);
     
     await apiKeysStore.createApiKey(newKey.value);
     
@@ -303,7 +342,8 @@ const addApiKey = async () => {
       provider: '',
       name: '',
       api_key: '',
-      is_active: true
+      is_active: true,
+      provider_id: null
     };
     
     // Скрываем форму после успешного добавления
@@ -370,13 +410,13 @@ const deleteKey = async () => {
 
 // Получение названия провайдера по ID
 const getProviderName = (providerId) => {
-  const provider = availableProviders.find(p => p.id === providerId);
+  const provider = availableProviders.value.find(p => p.id === providerId);
   return provider ? provider.name : providerId;
 };
 
 // Получение описания провайдера по ID
 const getProviderDescription = (providerId) => {
-  const provider = availableProviders.find(p => p.id === providerId);
+  const provider = availableProviders.value.find(p => p.id === providerId);
   return provider ? provider.description : '';
 };
 
@@ -406,6 +446,7 @@ const showSuccessMessage = (message) => {
 const showErrorMessage = (message) => {
   alert(message); // В реальном приложении здесь будет компонент уведомлений
 };
+
 </script>
 
 <style scoped>

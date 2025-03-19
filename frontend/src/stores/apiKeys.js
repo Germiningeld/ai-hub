@@ -5,7 +5,8 @@ export const useApiKeysStore = defineStore('apiKeys', {
   state: () => ({
     keys: [],
     loading: false,
-    error: null
+    error: null,
+    providers: [] // Добавляем providers в state
   }),
   
   getters: {
@@ -31,7 +32,10 @@ export const useApiKeysStore = defineStore('apiKeys', {
     isLoading: (state) => state.loading,
     
     // Получение ошибки
-    getError: (state) => state.error
+    getError: (state) => state.error,
+    
+    // Получение списка доступных провайдеров
+    availableProviders: (state) => state.providers
   },
   
   actions: {
@@ -48,6 +52,37 @@ export const useApiKeysStore = defineStore('apiKeys', {
         this.error = error.response?.data?.error_message || error.message;
         console.error('Error fetching API keys:', error);
         return [];
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    // Загрузка списка доступных провайдеров с сервера
+    async fetchProviders() {
+      this.loading = true;
+      this.error = null;
+      
+      try {
+        const response = await api.get('/ai-models/providers?is_active=true');
+        // Преобразуем ответ сервера к нужному формату
+        this.providers = response.data.map(provider => ({
+          id: provider.code,
+          name: provider.name,
+          description: provider.description || '',
+          serviceClass: provider.service_class,
+          providerId: provider.id
+        }));
+        return this.providers;
+      } catch (error) {
+        this.error = error.response?.data?.error_message || error.message;
+        console.error('Error fetching providers:', error);
+        
+        // Возвращаем стандартный список на случай ошибки
+        this.providers = [
+          { id: 'openai', name: 'OpenAI (ChatGPT)', description: 'GPT-3.5, GPT-4, GPT-4o' },
+          { id: 'anthropic', name: 'Anthropic (Claude)', description: 'Claude 3 (Haiku, Sonnet, Opus)' }
+        ];
+        return this.providers;
       } finally {
         this.loading = false;
       }
@@ -161,12 +196,26 @@ export const useApiKeysStore = defineStore('apiKeys', {
       }
     },
     
-    // Получение списка доступных провайдеров
+    // Получение списка доступных провайдеров (сохраняем для обратной совместимости)
     getAvailableProviders() {
-      return [
-        { id: 'openai', name: 'OpenAI (ChatGPT)', description: 'GPT-3.5, GPT-4, GPT-4o' },
-        { id: 'anthropic', name: 'Anthropic (Claude)', description: 'Claude 3 (Haiku, Sonnet, Opus)' }
-      ];
+      // Если список провайдеров пуст, возвращаем стандартный набор
+      if (this.providers.length === 0) {
+        return [
+          { id: 'openai', name: 'OpenAI (ChatGPT)', description: 'GPT-3.5, GPT-4, GPT-4o' },
+          { id: 'anthropic', name: 'Anthropic (Claude)', description: 'Claude 3 (Haiku, Sonnet, Opus)' }
+        ];
+      }
+      return this.providers;
+    },
+    
+    // Инициализация списка провайдеров значениями по умолчанию
+    initDefaultProviders() {
+      if (this.providers.length === 0) {
+        this.providers = [
+          { id: 'openai', name: 'OpenAI (ChatGPT)', description: 'GPT-3.5, GPT-4, GPT-4o' },
+          { id: 'anthropic', name: 'Anthropic (Claude)', description: 'Claude 3 (Haiku, Sonnet, Opus)' }
+        ];
+      }
     },
     
     // Сброс состояния хранилища
@@ -174,6 +223,7 @@ export const useApiKeysStore = defineStore('apiKeys', {
       this.keys = [];
       this.loading = false;
       this.error = null;
+      this.providers = [];
     },
     
     // Очистка ошибки
@@ -189,7 +239,7 @@ export const useApiKeysStore = defineStore('apiKeys', {
       {
         key: 'apiKeys',
         storage: localStorage,
-        paths: ['keys']
+        paths: ['keys', 'providers'] // Добавляем провайдеров в персистентное хранилище
       }
     ]
   }

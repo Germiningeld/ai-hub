@@ -13,21 +13,20 @@
             <div class="form-group">
               <label for="provider">Провайдер</label>
               <select 
-                id="provider" 
-                v-model="formData.provider" 
-                :disabled="editingKey"
-                required
-              >
-                <option value="">Выберите провайдера</option>
-                <option 
-                  v-for="provider in providers" 
-                  :key="provider.id" 
-                  :value="provider.id"
-                >
-                  {{ provider.name }}
-                </option>
-              </select>
-            </div>
+  id="provider" 
+  v-model="formData.provider" 
+  :disabled="editingKey"
+  required
+>
+  <option value="">Выберите провайдера</option>
+  <option 
+    v-for="provider in availableProviders" 
+    :key="provider.id" 
+    :value="provider.id"
+  >
+    {{ provider.name }}
+  </option>
+</select>            </div>
             
             <div class="form-group">
               <label for="name">Название (опционально)</label>
@@ -80,57 +79,91 @@
   </template>
   
   <script setup>
-  import { ref, computed, onMounted } from 'vue';
+  import { ref, computed, onMounted, watch } from 'vue';
+import { useApiKeysStore } from '@/stores/apiKeys';
+
+const props = defineProps({
+  providers: {
+    type: Array,
+    default: () => []
+  },
+  selectedProvider: {
+    type: String,
+    default: null
+  },
+  editingKey: {
+    type: Object,
+    default: null
+  }
+});
+
+const emit = defineEmits(['close', 'save']);
+
+// Инициализируем хранилище для доступа к API провайдеров
+const apiKeysStore = useApiKeysStore();
+const availableProviders = ref([]);
+
+// Форма с данными
+const formData = ref({
+  provider: '',
+  name: '',
+  api_key: '',
+  is_active: true,
+  provider_id: null // Добавляем поле для ID провайдера из базы данных
+});
+
+// Показать/скрыть ключ
+const showKey = ref(false);
+
+// Инициализация компонента
+onMounted(async () => {
+  // Загружаем список провайдеров с сервера
+  try {
+    await apiKeysStore.fetchProviders();
+    availableProviders.value = apiKeysStore.getAvailableProviders;
+  } catch (error) {
+    console.error('Ошибка при загрузке списка провайдеров:', error);
+    // Используем список провайдеров из props в случае ошибки
+    availableProviders.value = props.providers;
+  }
   
-  const props = defineProps({
-    providers: {
-      type: Array,
-      default: () => []
-    },
-    selectedProvider: {
-      type: String,
-      default: null
-    },
-    editingKey: {
-      type: Object,
-      default: null
+  // Инициализируем форму данными
+  if (props.editingKey) {
+    formData.value = {
+      provider: props.editingKey.provider,
+      name: props.editingKey.name || '',
+      api_key: props.editingKey.api_key || '',
+      is_active: props.editingKey.is_active !== false,
+      provider_id: props.editingKey.provider_id || null
+    };
+  } else if (props.selectedProvider) {
+    formData.value.provider = props.selectedProvider;
+    
+    // Находим соответствующий provider_id
+    const provider = availableProviders.value.find(p => p.id === props.selectedProvider);
+    if (provider) {
+      formData.value.provider_id = provider.providerId;
     }
-  });
-  
-  const emit = defineEmits(['close', 'save']);
-  
-  // Форма с данными
-  const formData = ref({
-    provider: '',
-    name: '',
-    api_key: '',
-    is_active: true
-  });
-  
-  // Показать/скрыть ключ
-  const showKey = ref(false);
-  
-  // Инициализация формы данными
-  onMounted(() => {
-    if (props.editingKey) {
-      formData.value = {
-        provider: props.editingKey.provider,
-        name: props.editingKey.name || '',
-        api_key: props.editingKey.api_key || '',
-        is_active: props.editingKey.is_active !== false
-      };
-    } else if (props.selectedProvider) {
-      formData.value.provider = props.selectedProvider;
+  }
+});
+
+// Наблюдаем за изменениями провайдера и обновляем provider_id
+watch(() => formData.value.provider, (newValue) => {
+  if (newValue) {
+    const provider = availableProviders.value.find(p => p.id === newValue);
+    if (provider) {
+      formData.value.provider_id = provider.providerId;
     }
-  });
-  
-  const closeModal = () => {
-    emit('close');
-  };
-  
-  const saveApiKey = () => {
-    emit('save', { ...formData.value });
-  };
+  }
+});
+
+const closeModal = () => {
+  emit('close');
+};
+
+const saveApiKey = () => {
+  emit('save', { ...formData.value });
+};
   </script>
   
   <style scoped>

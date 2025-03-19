@@ -62,8 +62,9 @@
 
       <div v-else>
         <div v-for="provider in filteredProviders" :key="provider.id" class="row mb-5">
-          <div class="card col-lg-10 col-xl-8">
-            <div class="card-header bg-light">
+          <div class="col-lg-10 col-xl-8">
+            <div class="card">
+              <div class="card-header bg-light">
               <h5 class="mb-0 d-flex align-items-center">
                 <div class="provider-icon me-2" :style="{ 'background-color': getProviderColor(provider.code) }">
                   <i class="bi" :class="getProviderIcon(provider.code)"></i>
@@ -241,6 +242,7 @@
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
 

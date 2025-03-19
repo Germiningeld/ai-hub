@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "AIHub"
     APP_VERSION: str = "0.1.0"
     APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8000
+    APP_PORT: int = 4000
     APP_ROOT_PATH: str = ""
 
     # CORS настройки
@@ -31,8 +31,9 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
-
+    POSTGRESQL_ASYNCPG_URL: str
     DATABASE_URL: str
+
 
     # Настройки безопасности
     SECRET_KEY: str
@@ -47,11 +48,11 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_ASYNCPG(self) -> str:
-        return f"postgresql+asyncpg://{self.DATABASE_URL}"
+        return f"{self.POSTGRESQL_ASYNCPG_URL}"
 
     @property
     def DATABASE(self) -> str:
-        return f"postgresql://{self.DATABASE_URL}"
+        return f"{self.DATABASE_URL}"
 
     @property
     def ORIGINS(self) -> List[str]:

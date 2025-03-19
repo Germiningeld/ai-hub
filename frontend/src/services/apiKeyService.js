@@ -77,11 +77,22 @@ class ApiKeyService {
     }
   }
   
-  /**
-   * Получение списка доступных провайдеров
-   * @returns {Array} - Массив объектов провайдеров
-   */
-  getAvailableProviders() {
+/**
+ * Получение списка доступных провайдеров
+ * @returns {Promise<Array>} - Промис с массивом объектов провайдеров
+ */
+async getAvailableProviders() {
+  try {
+    const response = await api.get('/ai-models/providers?is_active=true');
+    return response.data.map(provider => ({
+      id: provider.code,
+      name: provider.name,
+      description: provider.description || `Доступ к моделям ${provider.name}`,
+      url: this.getProviderUrl(provider.code)
+    }));
+  } catch (error) {
+    console.error('Ошибка при получении списка провайдеров:', error);
+    // Возвращаем дефолтные значения в случае ошибки
     return [
       { 
         id: 'openai', 
@@ -97,6 +108,7 @@ class ApiKeyService {
       }
     ];
   }
+}
   
   /**
    * Обработка ошибок API

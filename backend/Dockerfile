@@ -2,15 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Установка зависимостей
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Копирование кода приложения
 COPY . .
 
-# Expose port
-EXPOSE 8080
+# Экспорт порта для внутренней сети (не доступен публично)
+EXPOSE 4000
 
-# Command to run the application
+# Запуск приложения
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "4000"]

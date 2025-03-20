@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     APP_ROOT_PATH: str = ""
 
     # CORS настройки
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://frontend:5173,https://aihub.workindev.ru,http://aihub.workindev.ru"
 
     @field_validator('ALLOWED_ORIGINS')
     def parse_allowed_origins(cls, v):

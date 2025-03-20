@@ -70,6 +70,10 @@ app.include_router(model_preferences.router, prefix="/api/model_preferences", ta
 # Статистика
 app.include_router(statistics.router, prefix="/api/statistics", tags=["statistics"])
 
+@app.get("/api/health", tags=["Health"])
+async def health_check():
+    return {"status": "ok", "version": settings.APP_VERSION}
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=4000
                 , reload=True)
